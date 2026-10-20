@@ -1,5 +1,6 @@
 import { CashPlot } from "./components/CashPlot";
 import { DecisionRoom } from "./components/DecisionRoom";
+import { buildMoves } from "./signals";
 import { CashView } from "./components/CashReadiness";
 import { Evidence } from "./components/BusinessEvidence";
 import { PortalDemo } from "./components/InvoicePortal";
@@ -220,6 +221,34 @@ export function App() {
     if (view === "context") setDraft(context);
     setView(view);
   }
+  function alertEmail() {
+    try {
+      return localStorage.getItem("headroom-alert-email");
+    } catch {
+      return null;
+    }
+  }
+  async function sendTestAlert() {
+    const response = await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        to: alertEmail(),
+        organisation: snapshot?.organisation.id,
+        company: context.company,
+        bufferMonths: context.bufferMonths,
+        force: true,
+      }),
+    });
+    const body = z
+      .object({ sent: z.number(), to: z.string() })
+      .or(z.object({ error: z.string() }))
+      .parse(await response.json());
+    if ("error" in body) throw new Error(body.error);
+    return body.sent
+      ? `Sent ${body.sent} red ${body.sent === 1 ? "flag" : "flags"} to ${body.to}.`
+      : "Nothing is red right now, so no email went out.";
+  }
   return (
     <div className="app">
       <header className="app-header">
@@ -336,13 +365,13 @@ export function App() {
           <>
             {view === "moves" && (
               <DecisionRoom
-                snapshot={snapshot}
-                context={context}
-                plan={selected}
-                asOf={asOf}
-                liveFlags={liveFlags}
+                moves={buildMoves(liveFlags, snapshot, context, selected)}
+                company={context.company}
+                loading={!liveFlags.length && !flagError}
                 flagError={flagError}
-                onNavigate={go}
+                alertEmail={alertEmail()}
+                onSendAlert={sendTestAlert}
+                onEvidence={() => go("evidence")}
               />
             )}
             {view === "cash" && (

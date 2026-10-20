@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently --kill-others -n api,web \"tsx watch server/index.ts\" \"vite --host 127.0.0.1 --port 4317 --strictPort\"",
+    "dev": "concurrently --kill-others -n api,web \"tsx watch --env-file-if-exists=.env.local server/index.ts\" \"vite --host 127.0.0.1 --port 4317 --strictPort\"",
     "build": "tsc --noEmit && vite build",
     "test": "tsx --test src/*.test.ts server/*.test.ts",
     "check": "tsc --noEmit"
