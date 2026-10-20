@@ -1,0 +1,73 @@
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: oklch(0.175 0.008 150);
+  --color-surface: oklch(0.215 0.01 150);
+  --color-sidebar: oklch(0.195 0.009 150);
+  --color-ink: oklch(0.95 0.008 145);
+  --color-muted: oklch(0.77 0.012 145);
+  --color-faint: oklch(0.68 0.012 145);
+  --color-rule: oklch(0.32 0.012 145);
+  --color-control: oklch(0.5 0.015 145);
+  --color-accent: oklch(0.8 0.105 155);
+  --color-accent-soft: oklch(0.275 0.035 150);
+  --color-accent-medium: oklch(0.62 0.075 150);
+  --color-chart-fill: oklch(0.25 0.025 150);
+  --color-baseline: oklch(0.62 0.012 145);
+  --color-warning: oklch(0.82 0.11 75);
+  --color-warning-soft: oklch(0.285 0.035 75);
+  --color-negative: oklch(0.78 0.12 30);
+  --color-negative-soft: oklch(0.27 0.035 30);
+  --color-shadow: oklch(0 0 0 / 0.24);
+}
+.theme-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 11px;
+  line-height: 1;
+}
+.theme-toggle:hover {
+  background: var(--color-paper);
+  border-color: var(--color-control);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+/* The newer decision room defines its own RAG palette. */
+:root[data-theme="dark"] .room,
+:root[data-theme="dark"] .room-dialog {
+  --rag-red: var(--color-negative);
+  --rag-red-soft: var(--color-negative-soft);
+  --rag-amber: var(--color-warning);
+  --rag-amber-soft: var(--color-warning-soft);
+  --rag-green: var(--color-accent);
+  --rag-green-soft: var(--color-accent-soft);
+}
+:root[data-theme="dark"] .dialog-rag.red {
+  color: var(--color-negative);
+}
+:root[data-theme="dark"] .dialog-rag.amber {
+  color: var(--color-warning);
+}
+@media (max-width: 760px) {
+  .theme-toggle {
+    width: 36px;
+    padding: 8px;
+    margin-left: 10px;
+  }
+  .theme-toggle span {
+    display: none;
+  }
+}
