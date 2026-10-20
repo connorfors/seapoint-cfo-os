@@ -1,0 +1,7 @@
+{
+  "framework": "React + Vite",
+  "existingDesignSignals": false,
+  "motion": "cut",
+  "fonts": ["Manrope Variable", "Geist Variable"],
+  "palette": "forest green with tinted neutral surfaces"
+}
