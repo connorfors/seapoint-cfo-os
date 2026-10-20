@@ -7,6 +7,7 @@ import {
   lateCustomer,
   oddSpend,
   overdueBills,
+  payrollCover,
   spendingTrend,
   spendMonths,
   type FlagInputs,
@@ -52,6 +53,11 @@ function input(overrides: Partial<FlagInputs> = {}): FlagInputs {
       { payer: "Delta Consulting", date: "2026-08-10", amount: 3_360 },
       { payer: "Delta Consulting", date: "2026-09-10", amount: 3_360 },
       { payer: "Delta Consulting", date: "2026-10-10", amount: 3_360 },
+      { payer: "Acme Retail Group", date: "2026-09-30", amount: 18_500 },
+      { payer: "Globex Corporation", date: "2026-09-28", amount: 12_750 },
+    ],
+    payroll: [
+      { name: "October payroll", status: "to_pay", payDate: null, net: 11_800, currency: "GBP" },
     ],
     ...overrides,
   };
@@ -73,7 +79,6 @@ test("spend months are the last complete month and the three before", () => {
 test("overdue bills are red, convert EUR, and list USD separately", () => {
   const flag = overdueBills(input())!;
   assert.equal(flag.rag, "red");
-  assert.equal(flag.horizon, "today");
   assert.match(flag.metric, /3 bills · oldest 35 days late/);
   assert.match(flag.decision, /£29,382\.50/);
   assert.ok(flag.detail.some((line) => line.includes("US$1,300")));
@@ -113,15 +118,61 @@ test("idle cash is silent without a treasury account", () => {
 
 test("foreign cash beyond 90 days of bills in that currency is exposure", () => {
   const flag = currencyExposure(input())!;
-  assert.match(flag.headline, /€159k unhedged/);
+  assert.equal(flag.title, "Potential FX loss");
+  assert.match(flag.headline, /£7k at risk/);
+  assert.match(flag.metric, /€159k unhedged/);
   assert.match(flag.detail[1], /€9,000\.00/);
 });
 
-test("spending up 23% is amber and names the biggest driver", () => {
+test("spending up 23% is amber, and one-off receipts that hid it are named", () => {
   const flag = spendingTrend(input())!;
   assert.equal(flag.rag, "amber");
-  assert.match(flag.headline, /Up 23% in September/);
-  assert.match(flag.decision, /Meals|Software/);
+  assert.equal(flag.headline, "Spending up 23%");
+  assert.match(flag.metric, /one-off receipts hid it/);
+  assert.match(flag.detail[1], /Acme Retail Group \(£18,500\.00\), Globex Corporation/);
+  assert.match(flag.decision, /Meals/);
+});
+
+test("without unusual receipts the burn card shows the plain comparison", () => {
+  const credits = input().credits.filter((c) => c.date < "2026-09-01");
+  const flag = spendingTrend(input({ credits }))!;
+  assert.match(flag.metric, /£162k in September vs £133k usual/);
+});
+
+test("payroll is green when one account covers it", () => {
+  const flag = payrollCover(input())!;
+  assert.equal(flag.rag, "green");
+  assert.equal(flag.title, "Payroll funded");
+  assert.match(flag.decision, /from Northstar Modulr GBP/);
+});
+
+test("payroll adds a new joiner to the Seapoint run and funds the near-empty wallet", () => {
+  const flag = payrollCover(
+    input({
+      payroll: [
+        { name: "United Kingdom Payroll", status: "to_pay", payDate: null, period: "October 2026", net: 11_800, currency: "GBP", people: 3, annualSalaries: 206_000 },
+      ],
+      joiner: { name: "Maya Chen", role: "Head of Sales", startDate: "2026-10-01", annualSalary: 90_000, currency: "GBP" },
+      payrollWallet: { name: "Deel payroll wallet", balance: 412 },
+    }),
+  )!;
+  assert.equal(flag.rag, "red");
+  assert.equal(flag.title, "Payroll underfunded");
+  assert.equal(flag.metric, "October payroll, 25 Oct · includes Maya Chen");
+  assert.match(flag.detail[1], /about £5,155\.34 net this month/);
+  assert.match(flag.detail[2], /Total to fund: £16,955\.34 for 4 people\. Deel payroll wallet holds £412\.00\./);
+  assert.equal(flag.detail[3], "As things stand, nobody can be paid.");
+  assert.equal(
+    flag.decision,
+    "Transfer £16,543.34 from Northstar Modulr GBP to Deel payroll wallet for October payroll.",
+  );
+});
+
+test("payroll is red when its currency cannot cover it", () => {
+  const payroll = [{ name: "US run", status: "to_pay", payDate: null, net: 24_000, currency: "USD" }];
+  const flag = payrollCover(input({ payroll }))!;
+  assert.equal(flag.rag, "red");
+  assert.match(flag.headline, /US\$24k short/);
 });
 
 test("the category furthest above usual is the odd spend", () => {
@@ -130,11 +181,61 @@ test("the category furthest above usual is the odd spend", () => {
   assert.match(flag.detail[1], /3 payments, against about 1/);
 });
 
-test("flags sort red first, then by how soon they matter", () => {
+test("red is today, amber this week, green this month, in that order", () => {
   const flags = buildFlags(input());
-  assert.equal(flags.length, 6);
   assert.deepEqual(
-    flags.map((f) => f.id),
-    ["overdue-bills", "late-customer", "odd-spend", "idle-cash", "currency-exposure", "spending-trend"],
+    flags.map((f) => `${f.rag}:${f.horizon}:${f.id}`),
+    [
+      "red:today:overdue-bills",
+      "red:today:late-customer",
+      "amber:week:idle-cash",
+      "amber:week:currency-exposure",
+      "amber:week:spending-trend",
+      "amber:week:odd-spend",
+      "green:month:payroll",
+    ],
   );
+});
+
+test("a new joiner paid in a currency the company does not hold turns payroll red", () => {
+  const flag = payrollCover(
+    input({
+      joiner: { name: "Maya Chen", role: "Head of Sales, US", startDate: "2026-11-02", annualSalary: 140_000, currency: "USD" },
+      joinerRate: 1.34,
+    }),
+  )!;
+  assert.equal(flag.rag, "red");
+  assert.equal(flag.title, "Payroll underfunded");
+  assert.equal(flag.headline, "US$12k short in USD");
+  assert.match(flag.metric, /Maya Chen's first pay, 25 Nov/);
+  assert.equal(
+    flag.decision,
+    "Convert £8,706.47 from Northstar Modulr GBP to US$11,666.67 for Maya Chen's first salary.",
+  );
+});
+
+test("a customer paying on the 18th against terms of the 8th is 10 days late every time", () => {
+  const flag = lateCustomer(input({ terms: [{ customer: "Cormorant Systems", dueDay: 8 }] }))!;
+  assert.equal(flag.rag, "red");
+  assert.equal(flag.headline, "Cormorant Systems pays 10 days late");
+  assert.equal(flag.metric, "Every payment since Feb 2026 · now 12 days overdue");
+  assert.match(flag.action.email!.body, /Our terms are payment by the 8th/);
+});
+
+test("a bill that appears twice is paid once and named as a duplicate", () => {
+  const twice = { vendor: "Snowflake", reference: "SNF-10", amount: 21_800, currency: "GBP", due: "2026-09-15" };
+  const flag = overdueBills(input({ unpaidBills: [twice, { ...twice }] }))!;
+  assert.match(flag.metric, /^1 bills/);
+  assert.equal(flag.decision, "Pay 1 overdue bills, £21,800.00, from Northstar Modulr GBP, and hold back 1 duplicate.");
+  assert.ok(flag.detail.some((line) => line.startsWith("Held back as a duplicate: Snowflake SNF-10")));
+});
+
+test("an external FX forecast turns exposure into an expected loss", () => {
+  const flag = currencyExposure(
+    input({ market: { currency: "EUR", change30dPct: -1.8, forecast3mPct: -2.5, source: "markets feed consensus" } }),
+  )!;
+  assert.match(flag.headline, /^£3,3\d\d expected loss$/);
+  assert.match(flag.metric, /EUR forecast to fall 2.5%/);
+  assert.match(flag.detail[0], /EUR is down 1.8% against GBP in 30 days/);
+  assert.match(flag.decision, /^Lock a 3-month forward on €159,400\.00 at today's 0\.8425/);
 });

@@ -1,35 +1,59 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, X, CircleCheck, ChevronDown } from "lucide-react";
-import type { BusinessContext, Snapshot, LiveFlag } from "../contracts";
-import type { PlanId } from "../model";
-import { buildSignals, type DecisionDestination } from "../signals";
+import { ArrowRight, Check, X, Mail, PartyPopper } from "lucide-react";
+import { horizons, type Move } from "../signals";
+import type { Horizon } from "../flags";
+import { RunAction } from "./RunAction";
+import "./decision-room.css";
+
+type Filter = "all" | Horizon;
+const doneKey = "headroom-done-v1";
+const meaning = { red: "Act today", amber: "Review this week", green: "On track" };
+
+function loadDone(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(doneKey) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+const keyOf = (move: Move) => `${move.id}:${move.headline}`;
 
 export function DecisionRoom({
-  snapshot,
-  context,
-  plan,
-  asOf,
-  liveFlags,
+  moves,
+  company,
+  loading,
   flagError,
-  onNavigate,
+  alertEmail,
+  onSendAlert,
+  onResolved,
+  openMove,
+  onEvidence,
 }: {
-  snapshot: Snapshot;
-  context: BusinessContext;
-  plan: PlanId;
-  asOf: string;
-  liveFlags: LiveFlag[];
+  moves: Move[];
+  company: string;
+  loading: boolean;
   flagError: string;
-  onNavigate: (destination: DecisionDestination) => void;
+  alertEmail: string | null;
+  onSendAlert: () => Promise<string>;
+  /** Called when an action finishes; returns a note such as "Receipt emailed to …". */
+  onResolved: (move: Move, receipt: string) => Promise<string | null>;
+  /** A move to open straight away, for example from an alert email link. */
+  openMove: string | null;
+  onEvidence: () => void;
 }) {
+  const [filter, setFilter] = useState<Filter>("all");
+  const [done, setDone] = useState(loadDone);
   const [active, setActive] = useState<string | null>(null);
-  const [choice, setChoice] = useState("");
-  const [phase, setPhase] = useState<"decision" | "approval" | "approved">(
-    "decision",
-  );
+  const [phase, setPhase] = useState<"act" | "celebrate">("act");
+  const [alertNote, setAlertNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [receiptNote, setReceiptNote] = useState("");
+  const opened = useRef(false);
   const dialog = useRef<HTMLDivElement>(null);
-  const signals = buildSignals(snapshot, context, plan, asOf, liveFlags);
-  const flag = signals.find((signal) => signal.id === active);
-  const action = flag?.actions.find((action) => action.id === choice);
+  const move = moves.find((m) => m.id === active);
+  const handled = moves.filter((m) => done.has(keyOf(m))).length;
+  const next = moves.find((m) => m.id !== active && !done.has(keyOf(m)));
+
   useEffect(() => {
     if (!active) return;
     const previous = document.activeElement;
@@ -37,21 +61,14 @@ export function DecisionRoom({
     document.body.style.overflow = "hidden";
     dialog.current?.focus();
     function keyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setActive(null);
-        return;
-      }
+      if (event.key === "Escape") return setActive(null);
       if (event.key !== "Tab") return;
-      const elements = dialog.current?.querySelectorAll<HTMLElement>(
-        'button:not(:disabled),input:not(:disabled),summary,[tabindex="0"]',
+      const items = dialog.current?.querySelectorAll<HTMLElement>(
+        "button:not(:disabled),input:not(:disabled),textarea,summary",
       );
-      const first = elements?.[0],
-        last = elements?.[elements.length - 1];
-      if (
-        event.shiftKey &&
-        (document.activeElement === first ||
-          document.activeElement === dialog.current)
-      ) {
+      const first = items?.[0];
+      const last = items?.[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
         event.preventDefault();
         last?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -69,228 +86,262 @@ export function DecisionRoom({
   useEffect(() => {
     if (active) dialog.current?.focus();
   }, [phase, active]);
-  const meaning = { red: "Action needed", amber: "Review", green: "On track" };
+
+  useEffect(() => {
+    if (opened.current || !openMove || !moves.some((m) => m.id === openMove)) return;
+    opened.current = true;
+    setActive(openMove);
+    setPhase("act");
+  }, [openMove, moves]);
+
+  function open(id: string) {
+    setActive(id);
+    setPhase("act");
+    setReceiptNote("");
+  }
+  function complete(finished: Move, receipt: string) {
+    setReceiptNote("");
+    onResolved(finished, receipt)
+      .then((note) => setReceiptNote(note ?? ""))
+      .catch(() => setReceiptNote(""));
+    const updated = new Set(done).add(keyOf(finished));
+    setDone(updated);
+    try {
+      localStorage.setItem(doneKey, JSON.stringify([...updated]));
+    } catch {
+      /* Progress survives this session only. */
+    }
+    setPhase("celebrate");
+  }
+  function reset() {
+    setDone(new Set());
+    localStorage.removeItem(doneKey);
+  }
+  async function sendAlert() {
+    setSending(true);
+    setAlertNote("");
+    try {
+      setAlertNote(await onSendAlert());
+    } catch (error) {
+      setAlertNote(error instanceof Error ? error.message : "The alert could not be sent.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const counts = Object.fromEntries(
+    horizons.map((h) => [h.id, moves.filter((m) => m.horizon === h.id && !done.has(keyOf(m))).length]),
+  ) as Record<Horizon, number>;
+  const rows = horizons.filter((h) => filter === "all" || filter === h.id);
+
   return (
-    <>
-      <div className="decision-heading">
-        <h1>Your next moves, in order.</h1>
-      </div>
-      <section className="signal-grid" aria-label="Your six next moves">
-        {signals.map((signal) => (
-          <article
-            key={signal.id}
-            className={`signal-tile rag-${signal.rating}`}
-            aria-labelledby={`tile-${signal.id}`}
-          >
-            <div className="signal-top">
-              <span className={`rag-badge ${signal.rating}`}>
-                <span />
-                {signal.rating} · {signal.horizon}
+    <div className="room">
+      <div className="room-heading">
+        <div>
+          <h1>Your next moves, in order.</h1>
+          <p className="room-sub">
+            {moves.length
+              ? handled === moves.length
+                ? "Everything is handled. Well done."
+                : `${handled} of ${moves.length} handled`
+              : loading
+                ? "Reading your finances…"
+                : "Nothing needs you right now."}
+          </p>
+          <div className="room-progress" aria-hidden="true">
+            <span style={{ width: `${moves.length ? (handled / moves.length) * 100 : 0}%` }} />
+          </div>
+        </div>
+        <div className="room-alerts">
+          {alertEmail ? (
+            <>
+              <span>
+                <Mail size={14} /> Alerts on for {alertEmail}
               </span>
-              <span className="signal-source">{signal.source}</span>
-            </div>
-            <h2 id={`tile-${signal.id}`}>{signal.title}</h2>
-            <div className="signal-metric">{signal.metric}</div>
-            <p className="signal-metric-label">{signal.metricLabel}</p>
-            <button
-              className="tile-action"
-              onClick={() => {
-                setActive(signal.id);
-                setChoice(signal.actions[0]?.id ?? "");
-                setPhase("decision");
-              }}
-              aria-describedby={`tile-${signal.id}`}
-            >
-              Take action now <ArrowRight size={16} />
-            </button>
-          </article>
+              <button className="room-ghost" onClick={() => void sendAlert()} disabled={sending}>
+                {sending ? "Sending…" : "Send a test alert"}
+              </button>
+            </>
+          ) : (
+            <span className="muted">
+              <Mail size={14} /> Email alerts are off
+            </span>
+          )}
+          {alertNote && (
+            <small role="status" className="room-alert-note">
+              {alertNote}
+            </small>
+          )}
+        </div>
+      </div>
+
+      <div className="room-filters" role="group" aria-label="Show moves for">
+        {(
+          [
+            { id: "all", label: "All" },
+            ...horizons,
+          ] as { id: Filter; label: string }[]
+        ).map((f) => (
+          <button key={f.id} aria-pressed={filter === f.id} onClick={() => setFilter(f.id)}>
+            {f.id !== "all" && <i className={`dot ${f.id}`} />}
+            {f.label}
+            {f.id !== "all" && <b>{counts[f.id]}</b>}
+          </button>
         ))}
-      </section>
-      <div className="decision-footer">
-        <span>
-          <i className="rag-dot red" />
-          Act <i className="rag-dot amber" />
-          Review <i className="rag-dot green" />
-          On track
-        </span>
-        <button className="text-button" onClick={() => onNavigate("evidence")}>
+        {handled > 0 && (
+          <button className="room-reset" onClick={reset}>
+            Reset demo
+          </button>
+        )}
+      </div>
+
+      {flagError && (
+        <p className="room-error" role="alert">
+          Live flags could not load: {flagError}
+        </p>
+      )}
+
+      {rows.map((row) => {
+        const items = moves.filter((m) => m.horizon === row.id);
+        return (
+          <section key={row.id} className={`room-row ${row.id}`} aria-labelledby={`row-${row.id}`}>
+            <h2 id={`row-${row.id}`}>
+              <i className={`dot ${row.id}`} />
+              {row.label}
+              <span>{items.length ? meaning[items[0]!.rag] : "Nothing here"}</span>
+            </h2>
+            {items.length > 0 && (
+              <div className="room-grid">
+                {items.map((m, index) => {
+                  const finished = done.has(keyOf(m));
+                  return (
+                    <article
+                      key={m.id}
+                      className={`move-card ${m.rag} ${finished ? "finished" : ""}`}
+                      style={{ animationDelay: `${index * 60}ms` }}
+                      aria-labelledby={`move-${m.id}`}
+                    >
+                      <header>
+                        <h3 id={`move-${m.id}`}>{m.title}</h3>
+                        {finished ? (
+                          <span className="move-done">
+                            <Check size={14} /> Done
+                          </span>
+                        ) : (
+                          <span className={`move-rag ${m.rag}`} role="img" aria-label={m.rag} />
+                        )}
+                      </header>
+                      <p className="move-headline">{m.headline}</p>
+                      <p className="move-metric">{m.metric}</p>
+                      <div className="move-action">
+                        <button
+                          className="move-button"
+                          onClick={() => open(m.id)}
+                          aria-describedby={`preview-${m.id}`}
+                        >
+                          {finished ? "View what you did" : "Take action now"}
+                          <ArrowRight size={16} />
+                        </button>
+                        <div className="move-preview" role="tooltip" id={`preview-${m.id}`}>
+                          <b>What happens</b>
+                          {m.decision}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      <div className="room-footer">
+        <button className="text-button" onClick={onEvidence}>
           View financial evidence <ArrowRight size={13} />
         </button>
       </div>
-      {flag && (
-        <div className="decision-overlay">
+
+      {move && (
+        <div className="room-overlay" onMouseDown={(e) => e.target === e.currentTarget && setActive(null)}>
           <div
-            className="decision-dialog"
+            className={`room-dialog ${phase}`}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="decision-title"
+            aria-labelledby="dialog-title"
             tabIndex={-1}
             ref={dialog}
           >
-            <div className="dialog-top">
-              <span className={`rag-badge ${flag.rating}`}>
-                <span />
-                {meaning[flag.rating]} · {flag.horizon}
-              </span>
-              <button
-                className="close-dialog"
-                aria-label="Close decision"
-                onClick={() => setActive(null)}
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <p className="eyebrow">
-              {flag.source === "Demo"
-                ? "Illustrative scenario · not a Seapoint finding"
-                : flag.source === "Model"
-                  ? "Live financial baseline + planning assumptions"
-                  : "Seapoint financial evidence"}
-            </p>
-            <h2 id="decision-title">{flag.title}</h2>
-            <div className="dialog-metric">
-              {flag.metric}
-              <small>{flag.metricLabel}</small>
-            </div>
-            {phase === "decision" && (
+            <button className="dialog-close" aria-label="Close" onClick={() => setActive(null)}>
+              <X size={20} />
+            </button>
+            {phase === "act" ? (
               <>
-                <p className="decision-why">{flag.why}</p>
-                <h3>What action do you want to take?</h3>
-                <div className="decision-choices">
-                  {flag.actions.map((option) => (
-                    <label
-                      className={`decision-choice ${choice === option.id ? "chosen" : ""}`}
-                      key={option.id}
-                    >
-                      <input
-                        type="radio"
-                        name="decision-action"
-                        value={option.id}
-                        checked={choice === option.id}
-                        onChange={() => setChoice(option.id)}
-                      />
-                      {option.label}
-                    </label>
+                <span className={`dialog-rag ${move.rag}`}>
+                  <i /> {meaning[move.rag]}
+                </span>
+                <h2 id="dialog-title">{move.title}</h2>
+                <p className="dialog-headline">
+                  {move.headline}
+                  <small>{move.metric}</small>
+                </p>
+                {move.why && (
+                  <div className="dialog-why">
+                    <b>Why this matters for {company}</b>
+                    {move.why}
+                  </div>
+                )}
+                {move.detail.length > 0 && (
+                  <ul className="dialog-detail">
+                    {move.detail.map((line, index) => (
+                      <li key={index}>{line}</li>
+                    ))}
+                  </ul>
+                )}
+                <RunAction move={move} onDone={(receipt) => complete(move, receipt)} />
+                <p className="dialog-source">Source: {move.source}</p>
+              </>
+            ) : (
+              <div className="celebrate" role="status">
+                <div className="confetti" aria-hidden="true">
+                  {Array.from({ length: 28 }, (_, i) => (
+                    <span key={i} style={{ ["--i" as string]: i }} />
                   ))}
                 </div>
-                <p className="decision-statement">{flag.decision}</p>
-                <button
-                  className="primary full-width"
-                  disabled={!choice}
-                  onClick={() => setPhase("approval")}
-                >
-                  Prepare approval request <ArrowRight size={16} />
-                </button>
-              </>
-            )}
-            {phase === "approval" && action && (
-              <div className="approval-review">
-                <h3>Approve this preparation?</h3>
-                <dl>
-                  <div>
-                    <dt>Action</dt>
-                    <dd>{action.label}</dd>
-                  </div>
-                  <div>
-                    <dt>Approval owner</dt>
-                    <dd>{flag.owner} · demo role</dd>
-                  </div>
-                  <div>
-                    <dt>Scope</dt>
-                    <dd>Prepare a local draft or checklist</dd>
-                  </div>
-                </dl>
-                <p>{flag.decision}</p>
-                <button
-                  className="primary full-width"
-                  onClick={() => setPhase("approved")}
-                >
-                  Approve demo preparation <Check size={16} />
-                </button>
-                <button
-                  className="text-button"
-                  onClick={() => setPhase("decision")}
-                >
-                  Change the action
-                </button>
-              </div>
-            )}
-            {phase === "approved" && action && (
-              <div className="approval-result" role="status">
-                <div className="ready-note">
-                  <CircleCheck size={20} />
-                  <b>Approved in this demo · preparation ready</b>
+                <div className="celebrate-badge">
+                  <PartyPopper size={34} />
                 </div>
-                <h3>{action.label}</h3>
-                <pre className="prepared-draft">{action.preparation}</pre>
-                <button
-                  className="primary full-width"
-                  onClick={() => {
-                    setActive(null);
-                    onNavigate(action.destination);
-                  }}
-                >
-                  {action.button}
-                  <ArrowRight size={16} />
-                </button>
-                <p className="footnote">
-                  This local approval is not an approval in Seapoint or your
-                  finance system.
+                <h2 id="dialog-title">Well done.</h2>
+                <p className="celebrate-line">
+                  {move.title} is handled. {handled === moves.length ? "That was the last one." : `That is ${handled} of ${moves.length}.`}
                 </p>
+                <span className="celebrate-impact">
+                  <Check size={14} /> {move.impact}
+                </span>
+                {receiptNote && (
+                  <p className="celebrate-receipt">
+                    <Mail size={14} /> {receiptNote}
+                  </p>
+                )}
+                <div className="celebrate-actions">
+                  {next ? (
+                    <button className="move-button" onClick={() => open(next.id)}>
+                      Next: {next.title} <ArrowRight size={16} />
+                    </button>
+                  ) : (
+                    <button className="move-button" onClick={() => setActive(null)}>
+                      See your clear board <ArrowRight size={16} />
+                    </button>
+                  )}
+                  <button className="room-ghost" onClick={() => setActive(null)}>
+                    Back to my moves
+                  </button>
+                </div>
               </div>
             )}
-            <details className="decision-evidence">
-              <summary>
-                Evidence and assumptions <ChevronDown size={14} />
-              </summary>
-              {flagError && (
-                <p>
-                  Live flag read failed: {flagError}. Illustrative tiles remain
-                  marked Demo.
-                </p>
-              )}
-              <ul>
-                {flag.evidence.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-              <p>
-                Fetched {new Date(snapshot.fetchedAt).toLocaleString("en-GB")}.
-                Latest booked activity:{" "}
-                {snapshot.latestTransactionDate
-                  ? new Date(snapshot.latestTransactionDate).toLocaleDateString(
-                      "en-GB",
-                    )
-                  : "unavailable"}
-                . Bank refresh times are not exposed.
-              </p>
-            </details>
-            <details className="decision-evidence">
-              <summary>
-                How this fits your business <ChevronDown size={14} />
-              </summary>
-              <p>
-                <b>{context.company}</b>: {context.goal}
-              </p>
-              <p>
-                {context.bottleneck === "growth"
-                  ? context.pipeline
-                  : context.bottleneck === "founder"
-                    ? context.team
-                    : context.roadmap}
-              </p>
-              <p>
-                Fictional business brief. Suggestions use explicit rules;
-                narrative fields are not interpreted by an LLM.
-              </p>
-            </details>
-            <p className="dialog-disclaimer">
-              Demo approval only. Nothing moves money, books FX, freezes cards
-              or sends messages.
-            </p>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

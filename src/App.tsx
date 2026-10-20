@@ -1,8 +1,11 @@
+import { ThemeToggle } from "./components/ThemeToggle";
 import { CashPlot } from "./components/CashPlot";
 import { DecisionRoom } from "./components/DecisionRoom";
 import { CashView } from "./components/CashReadiness";
 import { Evidence } from "./components/BusinessEvidence";
 import { PortalDemo } from "./components/InvoicePortal";
+import { Journey } from "./components/Journey";
+import { buildMoves, type Move } from "./signals";
 import { money, runway, Tag, Back } from "./components/shared";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -18,6 +21,7 @@ import {
 import { z } from "zod";
 import {
   liveFlagsSchema,
+  flagContextOf,
   type LiveFlag,
   contextSchema,
   demoContext,
@@ -45,7 +49,7 @@ type Load =
   | { kind: "ready"; snapshot: Snapshot };
 function initialContext(): BusinessContext {
   try {
-    const stored = localStorage.getItem("headroom-context-v2");
+    const stored = localStorage.getItem("headroom-context-v3");
     if (stored) {
       const parsed = contextSchema.safeParse(JSON.parse(stored));
       if (parsed.success) return parsed.data;
@@ -54,6 +58,16 @@ function initialContext(): BusinessContext {
     /* Storage is optional. */
   }
   return demoContext;
+}
+/** A card to open on arrival, from an alert email's "Take action now" link. */
+const linkedMove = new URLSearchParams(window.location.search).get("move");
+function initialJourneyDone() {
+  if (linkedMove) return true;
+  try {
+    return localStorage.getItem("headroom-journey-v1") === "1";
+  } catch {
+    return false;
+  }
 }
 async function getJson(path: string): Promise<unknown> {
   const response = await fetch(path);
@@ -82,6 +96,8 @@ export function App() {
   const [saveError, setSaveError] = useState("");
   const [asOf, setAsOf] = useState(demoToday);
   const [chosen, setChosen] = useState<PlanId | null>(null);
+  const [journeyDone, setJourneyDone] = useState(initialJourneyDone);
+  const [flagsReady, setFlagsReady] = useState(false);
   const sequence = useRef(0);
   useEffect(() => {
     let active = true;
@@ -171,7 +187,7 @@ export function App() {
     setChosen(null);
     setSaveError("");
     try {
-      localStorage.setItem("headroom-context-v2", JSON.stringify(parsed.data));
+      localStorage.setItem("headroom-context-v3", JSON.stringify(parsed.data));
     } catch {
       setSaveError(
         "Context is active for this session. Browser storage is unavailable.",
@@ -180,6 +196,7 @@ export function App() {
     setView("moves");
   }
   const snapshot = load.kind === "ready" ? load.snapshot : null;
+  const flagContextKey = JSON.stringify(flagContextOf(context));
   useEffect(() => {
     if (!snapshot) {
       setLiveFlags([]);
@@ -187,8 +204,9 @@ export function App() {
     }
     let active = true;
     setFlagError("");
+    setFlagsReady(false);
     getJson(
-      `/api/flags?organisation=${encodeURIComponent(snapshot.organisation.id)}`,
+      `/api/flags?organisation=${encodeURIComponent(snapshot.organisation.id)}&context=${encodeURIComponent(flagContextKey)}`,
     )
       .then((body) => {
         if (active) setLiveFlags(liveFlagsSchema.parse(body).flags);
@@ -202,11 +220,14 @@ export function App() {
               : "Live flag details could not load.",
           );
         }
+      })
+      .finally(() => {
+        if (active) setFlagsReady(true);
       });
     return () => {
       active = false;
     };
-  }, [snapshot?.organisation.id, snapshot?.fetchedAt]);
+  }, [snapshot?.organisation.id, snapshot?.fetchedAt, flagContextKey]);
   const recommended = snapshot ? recommend(context, snapshot) : null;
   const selected = chosen ?? recommended?.plan ?? "lean";
   const selectedPlan = plans.find((plan) => plan.id === selected);
@@ -216,9 +237,116 @@ export function App() {
   const payments = snapshot
     ? planPayments(snapshot.accounts, demoPayments(snapshot.accounts), asOf)
     : [];
+  function applyContext(next: BusinessContext): string | null {
+    const parsed = contextSchema.safeParse(next);
+    if (!parsed.success)
+      return parsed.error.issues[0]?.message ?? "Check the business context.";
+    setContext(parsed.data);
+    setChosen(null);
+    try {
+      localStorage.setItem("headroom-context-v3", JSON.stringify(parsed.data));
+    } catch {
+      /* Storage is optional. */
+    }
+    return null;
+  }
+  function completeJourney(next: BusinessContext) {
+    if (applyContext(next)) return;
+    try {
+      localStorage.setItem("headroom-journey-v1", "1");
+    } catch {
+      /* Storage is optional. */
+    }
+    setJourneyDone(true);
+    setView("moves");
+  }
+  function restartJourney() {
+    try {
+      localStorage.removeItem("headroom-journey-v1");
+      localStorage.removeItem("headroom-done-v1");
+      localStorage.removeItem("headroom-context-v3");
+      window.history.replaceState(null, "", window.location.pathname);
+    } catch {
+      /* Storage is optional. */
+    }
+    setContext(demoContext);
+    setJourneyDone(false);
+  }
+  async function enableAlerts(email: string) {
+    if (!snapshot) throw new Error("Seapoint has not loaded yet.");
+    try {
+      localStorage.setItem("headroom-alert-email", email);
+    } catch {
+      /* Storage is optional. */
+    }
+    const response = await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        to: email,
+        organisation: snapshot.organisation.id,
+        company: context.company,
+        context: flagContextOf(context),
+        force: true,
+      }),
+    });
+    const body: unknown = await response.json().catch(() => null);
+    const result = z
+      .object({ sent: z.number(), red: z.number(), to: z.string() })
+      .safeParse(body);
+    if (response.ok && result.success) return result.data;
+    const failure = z.object({ error: z.string() }).safeParse(body);
+    throw new Error(
+      failure.success ? failure.data.error : "The alert could not send.",
+    );
+  }
   function go(view: View) {
     if (view === "context") setDraft(context);
     setView(view);
+  }
+  function alertEmail() {
+    try {
+      return localStorage.getItem("headroom-alert-email");
+    } catch {
+      return null;
+    }
+  }
+  async function sendResolution(move: Move, receipt: string) {
+    const to = alertEmail();
+    if (!to || move.rag !== "red") return null;
+    const response = await fetch("/api/alerts/resolved", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        to,
+        company: context.company,
+        title: move.title,
+        headline: move.headline,
+        receipt,
+      }),
+    });
+    return response.ok ? `Receipt emailed to ${to}.` : null;
+  }
+  async function sendTestAlert() {
+    const response = await fetch("/api/alerts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        to: alertEmail(),
+        organisation: snapshot?.organisation.id,
+        company: context.company,
+        context: flagContextOf(context),
+        force: true,
+      }),
+    });
+    const body = z
+      .object({ sent: z.number(), to: z.string() })
+      .or(z.object({ error: z.string() }))
+      .parse(await response.json());
+    if ("error" in body) throw new Error(body.error);
+    return body.sent
+      ? `Sent ${body.sent} red ${body.sent === 1 ? "flag" : "flags"} to ${body.to}.`
+      : "Nothing is red right now, so no email went out.";
   }
   return (
     <div className="app">
@@ -250,6 +378,11 @@ export function App() {
             </button>
           ))}
         </nav>
+        {journeyDone && (
+          <button className="quiet small" onClick={restartJourney}>
+            Start again
+          </button>
+        )}
         <div className="connection">
           <span className={`dot ${snapshot ? "connected" : ""}`} />
           {snapshot
@@ -258,8 +391,33 @@ export function App() {
               : "Seapoint connected"
             : "Connecting Seapoint"}
         </div>
+        <ThemeToggle />
       </header>
-      <main>
+      {!journeyDone && (
+        <main>
+          <Journey
+            context={context}
+            snapshot={snapshot}
+            moves={
+              snapshot ? buildMoves(liveFlags, snapshot, context, selected) : []
+            }
+            flagsReady={flagsReady}
+            flagError={flagError}
+            loadError={load.kind === "error" ? error || load.message : null}
+            retrying={refreshing}
+            onRetry={() =>
+              organisationId ? void refresh() : window.location.reload()
+            }
+            organisations={organisations}
+            organisationId={organisationId}
+            onSelectOrganisation={setOrganisationId}
+            onContextChange={applyContext}
+            onEnableAlerts={enableAlerts}
+            onComplete={completeJourney}
+          />
+        </main>
+      )}
+      <main hidden={!journeyDone}>
         <div className="workspace-bar">
           <div>
             <Building2 size={15} />
@@ -336,13 +494,15 @@ export function App() {
           <>
             {view === "moves" && (
               <DecisionRoom
-                snapshot={snapshot}
-                context={context}
-                plan={selected}
-                asOf={asOf}
-                liveFlags={liveFlags}
+                moves={buildMoves(liveFlags, snapshot, context, selected)}
+                company={context.company}
+                loading={!liveFlags.length && !flagError}
                 flagError={flagError}
-                onNavigate={go}
+                alertEmail={alertEmail()}
+                onSendAlert={sendTestAlert}
+                onResolved={sendResolution}
+                openMove={linkedMove}
+                onEvidence={() => go("evidence")}
               />
             )}
             {view === "cash" && (

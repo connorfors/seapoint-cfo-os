@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { buildFlags, spendMonths, type FlagInputs } from "../src/flags";
 import type { SeapointConnection } from "./mcp";
+import type { FlagContext } from "../src/contracts";
 
 const page = z.object({
   data: z.array(z.unknown()),
@@ -40,6 +41,18 @@ const group = z.object({
   metrics: z.object({ total: z.number(), count: z.number() }),
 });
 const category = z.object({ id: z.string(), leaf: z.string() });
+const payRun = z.object({
+  name: z.string(),
+  status: z.string(),
+  pay_date: z.string().nullable().optional(),
+  period: z.string().nullable().optional(),
+  currency: z.string(),
+  total_net_pay: z.number(),
+  employee_count: z.number().optional(),
+  employees: z
+    .array(z.object({ annual_salary: z.number().nullable().optional() }))
+    .optional(),
+});
 
 async function rows(connection: SeapointConnection, tool: string, args: object) {
   let result = page.parse(await connection.tool(tool, { ...args, limit: 100 }));
@@ -57,6 +70,7 @@ async function rows(connection: SeapointConnection, tool: string, args: object) 
 export async function flagsFor(
   connection: SeapointConnection,
   organisationId: string,
+  context: FlagContext = { bufferMonths: 3, newJoiner: null, customerTerms: [], payrollWallet: null, marketOutlook: null },
   now = new Date(),
 ) {
   const today = now.toISOString().slice(0, 10);
@@ -71,7 +85,7 @@ export async function flagsFor(
     { function: "sum", field: "reporting_amount", as: "total" },
     { function: "count", as: "count" },
   ];
-  const [accounts, bills, monthly, byCategory, categories, credits] =
+  const [accounts, bills, monthly, byCategory, categories, credits, runs] =
     await Promise.all([
       rows(connection, "query_accounts", scope),
       rows(connection, "query_invoices", { ...scope, where: { is_paid: false } }),
@@ -99,11 +113,25 @@ export async function flagsFor(
           date: { gte: new Date(now.getTime() - 400 * 86_400_000).toISOString().slice(0, 10) },
         },
       }),
+      rows(connection, "query_payroll", {
+        ...scope,
+        where: { status: ["draft", "needs_approval", "to_pay", "scheduled"] },
+      }),
     ]);
 
   const parsedAccounts = accounts.map((row) => account.parse(row));
   const currency =
     parsedAccounts.find((a) => a.reporting_balance)?.reporting_balance?.currency ?? "GBP";
+  const joiner = context.newJoiner;
+  let joinerRate: number | null = null;
+  if (joiner && joiner.currency !== currency) {
+    const inJoinerCurrency = (
+      await rows(connection, "query_accounts", { ...scope, reporting_currency: joiner.currency })
+    ).map((row) => account.parse(row));
+    joinerRate =
+      inJoinerCurrency.find((a) => a.currency === currency && a.reporting_balance)
+        ?.reporting_balance?.rate ?? null;
+  }
   const names = new Map(
     categories.map((row) => category.parse(row)).map((c) => [c.id, c.leaf]),
   );
@@ -122,6 +150,12 @@ export async function flagsFor(
   const input: FlagInputs = {
     today,
     currency,
+    bufferMonths: context.bufferMonths,
+    terms: context.customerTerms,
+    joiner,
+    joinerRate,
+    payrollWallet: context.payrollWallet,
+    market: context.marketOutlook,
     accounts: parsedAccounts.map((a) => ({
       id: a.id,
       name: a.name,
@@ -166,6 +200,19 @@ export async function flagsFor(
       return c.participant && c.reporting_amount
         ? [{ payer: c.participant.name, date: c.date.slice(0, 10), amount: c.reporting_amount.amount }]
         : [];
+    }),
+    payroll: runs.map((row) => {
+      const r = payRun.parse(row);
+      return {
+        name: r.name,
+        status: r.status,
+        payDate: r.pay_date?.slice(0, 10) ?? null,
+        period: r.period ?? undefined,
+        net: r.total_net_pay,
+        currency: r.currency,
+        people: r.employee_count ?? r.employees?.length,
+        annualSalaries: r.employees?.reduce((sum, e) => sum + (e.annual_salary ?? 0), 0),
+      };
     }),
   };
   return { fetchedAt: now.toISOString(), currency, flags: buildFlags(input) };

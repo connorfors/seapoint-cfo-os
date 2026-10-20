@@ -2,7 +2,8 @@ import { createServer, type ServerResponse } from "node:http";
 import { connectSeapoint, type SeapointConnection } from "./mcp";
 import { financialSnapshot, organisations } from "./finance";
 import { flagsFor } from "./flags";
-import { snapshotSchema, type Snapshot } from "../src/contracts";
+import { alertRecipientError, lastEmailPage, sendResolved, subscribe, watchAlerts } from "./alerts";
+import { flagContextSchema, snapshotSchema, type FlagContext, type Snapshot } from "../src/contracts";
 
 let connection: Promise<SeapointConnection> | undefined;
 async function getConnection() {
@@ -14,6 +15,34 @@ async function getConnection() {
   });
   return connection;
 }
+async function accessible(client: SeapointConnection, id: string) {
+  return (await organisations(client)).some((item) => item.id === id);
+}
+async function loadFlags(organisation: string, context: FlagContext) {
+  return (await flagsFor(await getConnection(), organisation, context)).flags;
+}
+/** The business context the flags read, or the defaults when it is missing or invalid. */
+function flagContext(value: unknown): FlagContext {
+  try {
+    const raw = typeof value === "string" ? JSON.parse(value) : (value ?? {});
+    return flagContextSchema.parse(raw);
+  } catch {
+    return flagContextSchema.parse({});
+  }
+}
+async function readJson(request: import("node:http").IncomingMessage) {
+  let body = "";
+  for await (const chunk of request) {
+    body += chunk;
+    if (body.length > 4096) throw new Error("The request is too large.");
+  }
+  return JSON.parse(body || "{}") as Record<string, unknown>;
+}
+const publicOrigins = (
+  process.env.HEADROOM_PUBLIC_ORIGINS ?? "https://headroom.cb-63a.workers.dev"
+)
+  .split(",")
+  .map((o) => o.trim());
 const cache = new Map<string, { data: Snapshot; expires: number }>();
 const requests = new Map<string, Promise<Snapshot>>();
 function json(response: ServerResponse, status: number, value: unknown) {
@@ -39,7 +68,7 @@ const server = createServer(async (request, response) => {
   const origin = request.headers.origin;
   if (
     origin &&
-    !["http://127.0.0.1:4317", "http://localhost:4317"].includes(origin)
+    !["http://127.0.0.1:4317", "http://localhost:4317", ...publicOrigins].includes(origin)
   ) {
     json(response, 403, {
       error: "This demo accepts requests from its local interface only.",
@@ -47,11 +76,72 @@ const server = createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url ?? "/", "http://127.0.0.1:4318");
-  if (request.method !== "GET") {
+  const resolvedPost = request.method === "POST" && url.pathname === "/api/alerts/resolved";
+  const alertPost = request.method === "POST" && url.pathname === "/api/alerts";
+  if (request.method !== "GET" && !alertPost && !resolvedPost) {
     json(response, 405, { error: "The demo only reads financial data." });
     return;
   }
   try {
+    if (resolvedPost) {
+      const body = await readJson(request);
+      const to = String(body.to ?? "").trim();
+      const problem = alertRecipientError(to);
+      if (problem) {
+        json(response, 400, { error: problem });
+        return;
+      }
+      const text = (key: string, max: number) => String(body[key] ?? "").slice(0, max);
+      const sent = await sendResolved({
+        to,
+        company: text("company", 100) || "your company",
+        title: text("title", 80),
+        headline: text("headline", 120),
+        receipt: text("receipt", 200),
+      });
+      json(response, 200, { sent, to });
+      return;
+    }
+    if (alertPost) {
+      const body = await readJson(request);
+      const to = String(body.to ?? "").trim();
+      const organisation = String(body.organisation ?? "");
+      const problem = alertRecipientError(to);
+      if (problem) {
+        json(response, 400, { error: problem });
+        return;
+      }
+      if (!(await accessible(await getConnection(), organisation))) {
+        json(response, 403, {
+          error: "That organisation is not accessible to this Seapoint account.",
+        });
+        return;
+      }
+      json(
+        response,
+        200,
+        await subscribe(
+          {
+            to,
+            organisation,
+            company: String(body.company ?? "your company").slice(0, 100),
+            context: flagContext(body.context),
+          },
+          loadFlags,
+          body.force === true,
+        ),
+      );
+      return;
+    }
+    if (url.pathname === "/api/alerts/last") {
+      const page = lastEmailPage(url.searchParams.get("kind") === "resolved" ? "resolved" : "alert");
+      response.writeHead(page ? 200 : 404, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end(page ?? "<p>No email has been sent yet.</p>");
+      return;
+    }
     if (url.pathname === "/api/health") {
       const entries = await organisations(await getConnection());
       json(response, 200, {
@@ -68,13 +158,13 @@ const server = createServer(async (request, response) => {
         return;
       }
       const client = await getConnection();
-      if (!(await organisations(client)).some((item) => item.id === id)) {
+      if (!(await accessible(client, id))) {
         json(response, 403, {
           error: "That organisation is not accessible to this Seapoint account.",
         });
         return;
       }
-      json(response, 200, await flagsFor(client, id));
+      json(response, 200, await flagsFor(client, id, flagContext(url.searchParams.get("context"))));
     } else if (url.pathname === "/api/snapshot") {
       const id = url.searchParams.get("organisation");
       if (!id) {
@@ -120,6 +210,7 @@ const server = createServer(async (request, response) => {
   }
 });
 
+watchAlerts(loadFlags);
 server.listen(4318, "127.0.0.1", () =>
   process.stdout.write("Seapoint local API ready at http://127.0.0.1:4318\n"),
 );
