@@ -1,0 +1,9 @@
+{
+  "name": "headroom",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  // Set at deploy time: ./public-link/start.sh passes the current quick-tunnel URL.
+  "vars": { "TUNNEL_ORIGIN": "https://example.trycloudflare.com" }
+}
