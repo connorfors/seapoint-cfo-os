@@ -4,7 +4,7 @@ import { CashView } from "./components/CashReadiness";
 import { Evidence } from "./components/BusinessEvidence";
 import { PortalDemo } from "./components/InvoicePortal";
 import { Journey } from "./components/Journey";
-import { buildMoves } from "./signals";
+import { buildMoves, type Move } from "./signals";
 import { money, runway, Tag, Back } from "./components/shared";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
@@ -20,6 +20,7 @@ import {
 import { z } from "zod";
 import {
   liveFlagsSchema,
+  flagContextOf,
   type LiveFlag,
   contextSchema,
   demoContext,
@@ -47,7 +48,7 @@ type Load =
   | { kind: "ready"; snapshot: Snapshot };
 function initialContext(): BusinessContext {
   try {
-    const stored = localStorage.getItem("headroom-context-v2");
+    const stored = localStorage.getItem("headroom-context-v3");
     if (stored) {
       const parsed = contextSchema.safeParse(JSON.parse(stored));
       if (parsed.success) return parsed.data;
@@ -57,7 +58,10 @@ function initialContext(): BusinessContext {
   }
   return demoContext;
 }
+/** A card to open on arrival, from an alert email's "Take action now" link. */
+const linkedMove = new URLSearchParams(window.location.search).get("move");
 function initialJourneyDone() {
+  if (linkedMove) return true;
   try {
     return localStorage.getItem("headroom-journey-v1") === "1";
   } catch {
@@ -182,7 +186,7 @@ export function App() {
     setChosen(null);
     setSaveError("");
     try {
-      localStorage.setItem("headroom-context-v2", JSON.stringify(parsed.data));
+      localStorage.setItem("headroom-context-v3", JSON.stringify(parsed.data));
     } catch {
       setSaveError(
         "Context is active for this session. Browser storage is unavailable.",
@@ -191,6 +195,7 @@ export function App() {
     setView("moves");
   }
   const snapshot = load.kind === "ready" ? load.snapshot : null;
+  const flagContextKey = JSON.stringify(flagContextOf(context));
   useEffect(() => {
     if (!snapshot) {
       setLiveFlags([]);
@@ -200,7 +205,7 @@ export function App() {
     setFlagError("");
     setFlagsReady(false);
     getJson(
-      `/api/flags?organisation=${encodeURIComponent(snapshot.organisation.id)}&buffer=${context.bufferMonths}`,
+      `/api/flags?organisation=${encodeURIComponent(snapshot.organisation.id)}&context=${encodeURIComponent(flagContextKey)}`,
     )
       .then((body) => {
         if (active) setLiveFlags(liveFlagsSchema.parse(body).flags);
@@ -221,7 +226,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [snapshot?.organisation.id, snapshot?.fetchedAt, context.bufferMonths]);
+  }, [snapshot?.organisation.id, snapshot?.fetchedAt, flagContextKey]);
   const recommended = snapshot ? recommend(context, snapshot) : null;
   const selected = chosen ?? recommended?.plan ?? "lean";
   const selectedPlan = plans.find((plan) => plan.id === selected);
@@ -238,7 +243,7 @@ export function App() {
     setContext(parsed.data);
     setChosen(null);
     try {
-      localStorage.setItem("headroom-context-v2", JSON.stringify(parsed.data));
+      localStorage.setItem("headroom-context-v3", JSON.stringify(parsed.data));
     } catch {
       /* Storage is optional. */
     }
@@ -257,9 +262,13 @@ export function App() {
   function restartJourney() {
     try {
       localStorage.removeItem("headroom-journey-v1");
+      localStorage.removeItem("headroom-done-v1");
+      localStorage.removeItem("headroom-context-v3");
+      window.history.replaceState(null, "", window.location.pathname);
     } catch {
       /* Storage is optional. */
     }
+    setContext(demoContext);
     setJourneyDone(false);
   }
   async function enableAlerts(email: string) {
@@ -276,7 +285,8 @@ export function App() {
         to: email,
         organisation: snapshot.organisation.id,
         company: context.company,
-        bufferMonths: context.bufferMonths,
+        context: flagContextOf(context),
+        force: true,
       }),
     });
     const body: unknown = await response.json().catch(() => null);
@@ -300,6 +310,22 @@ export function App() {
       return null;
     }
   }
+  async function sendResolution(move: Move, receipt: string) {
+    const to = alertEmail();
+    if (!to || move.rag !== "red") return null;
+    const response = await fetch("/api/alerts/resolved", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        to,
+        company: context.company,
+        title: move.title,
+        headline: move.headline,
+        receipt,
+      }),
+    });
+    return response.ok ? `Receipt emailed to ${to}.` : null;
+  }
   async function sendTestAlert() {
     const response = await fetch("/api/alerts", {
       method: "POST",
@@ -308,7 +334,7 @@ export function App() {
         to: alertEmail(),
         organisation: snapshot?.organisation.id,
         company: context.company,
-        bufferMonths: context.bufferMonths,
+        context: flagContextOf(context),
         force: true,
       }),
     });
@@ -472,6 +498,8 @@ export function App() {
                 flagError={flagError}
                 alertEmail={alertEmail()}
                 onSendAlert={sendTestAlert}
+                onResolved={sendResolution}
+                openMove={linkedMove}
                 onEvidence={() => go("evidence")}
               />
             )}

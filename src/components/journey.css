@@ -408,3 +408,143 @@
     opacity: 0;
   }
 }
+
+.journey-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.journey-group legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.journey-group .secondary {
+  justify-self: start;
+}
+.journey-triple {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.7fr;
+  gap: 12px;
+}
+@media (max-width: 760px) {
+  .journey-triple {
+    grid-template-columns: 1fr;
+  }
+}
+
+.journey-import {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  margin: 0 0 26px;
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent-medium);
+}
+.journey-import-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.journey-import-head strong {
+  display: block;
+  font-size: 15px;
+}
+.journey-import-head span {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.journey-import-apps {
+  display: flex;
+  gap: 6px;
+}
+.journey-import i {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  font-style: normal;
+  font-weight: 800;
+  font-size: 15px;
+  flex: none;
+}
+.app-notion {
+  background: #fff;
+  color: #111;
+  border: 1.5px solid #111;
+  font-family: Georgia, serif;
+}
+.app-deel {
+  background: #15357a;
+  color: #fff;
+  font-family: Georgia, serif;
+}
+.app-slack {
+  background: #4a154b;
+  color: #ecb22e;
+}
+.journey-import > .primary {
+  justify-self: start;
+}
+.journey-import ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.journey-import li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  opacity: 0.5;
+  transition: opacity var(--dur-short) var(--ease-out);
+}
+.journey-import li.reading,
+.journey-import li.found {
+  opacity: 1;
+}
+.journey-import li.found {
+  animation: import-pop var(--dur-long) var(--ease-out);
+}
+.journey-import li > span {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.journey-import li b {
+  font-size: 13px;
+}
+.journey-import li small {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.journey-import li.found svg {
+  color: var(--color-accent);
+}
+.journey-import-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+@keyframes import-pop {
+  0% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 0 oklch(39% 0.085 155 / 0.35);
+  }
+  60% {
+    box-shadow: 0 0 0 6px oklch(39% 0.085 155 / 0);
+  }
+}

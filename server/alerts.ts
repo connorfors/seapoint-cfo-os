@@ -1,4 +1,5 @@
 import type { Flag } from "../src/flags";
+import type { FlagContext } from "../src/contracts";
 
 const appUrl = process.env.HEADROOM_PUBLIC_URL ?? "https://headroom.cb-63a.workers.dev";
 const from = process.env.HEADROOM_ALERT_FROM ?? "Headroom <notification@mycloop.com>";
@@ -13,7 +14,7 @@ type Subscription = {
   to: string;
   organisation: string;
   company: string;
-  bufferMonths: number;
+  context: FlagContext;
   sent: Set<string>;
 };
 const subscriptions = new Map<string, Subscription>();
@@ -44,6 +45,7 @@ function html(company: string, flags: Flag[]) {
             <div style="font:700 22px/1.3 Arial,sans-serif;color:#1d2a22;margin:6px 0 2px">${escape(f.headline)}</div>
             <div style="font:400 14px/1.5 Arial,sans-serif;color:#5b6b60">${escape(f.metric)}</div>
             <div style="font:400 14px/1.5 Arial,sans-serif;color:#1d2a22;margin-top:10px"><b>The decision:</b> ${escape(f.decision)}</div>
+            <a href="${appUrl}/?move=${encodeURIComponent(f.id)}" style="display:inline-block;margin-top:12px;background:#24563c;color:#ffffff;font:600 14px/1 Arial,sans-serif;padding:11px 16px;border-radius:8px;text-decoration:none">Take action now</a>
           </td></tr>
         </table>
       </td></tr>`,
@@ -56,7 +58,7 @@ function html(company: string, flags: Flag[]) {
     <tr><td style="font:700 24px/1.3 Arial,sans-serif;color:#1d2a22;padding-bottom:6px">${flags.length === 1 ? "One thing needs you today" : `${flags.length} things need you today`}</td></tr>
     <tr><td style="font:400 14px/1.5 Arial,sans-serif;color:#5b6b60;padding-bottom:20px">Headroom checked ${escape(company)}'s live Seapoint data and found ${flags.length === 1 ? "a red flag" : "red flags"}.</td></tr>
     ${cards}
-    <tr><td style="padding-top:8px"><a href="${appUrl}" style="display:inline-block;background:#24563c;color:#ffffff;font:600 15px/1 Arial,sans-serif;padding:14px 22px;border-radius:8px;text-decoration:none">Take action now</a></td></tr>
+    <tr><td style="padding-top:8px"><a href="${appUrl}" style="font:600 14px/1 Arial,sans-serif;color:#24563c">Open your decision room</a></td></tr>
     <tr><td style="font:400 12px/1.5 Arial,sans-serif;color:#8a968d;padding-top:22px">You get this email once per new red flag. Nothing moves money until you approve it.</td></tr>
   </table></td></tr></table></body></html>`;
 }
@@ -85,11 +87,11 @@ async function send(sub: Subscription, flags: Flag[]) {
   process.stdout.write(`[alerts] sent ${flags.length} red flags to ${sub.to}\n`);
 }
 
-type Load = (organisation: string, bufferMonths: number) => Promise<Flag[]>;
+type Load = (organisation: string, context: FlagContext) => Promise<Flag[]>;
 
 /** Email the red flags not yet sent. `force` resends every current red flag. */
 export async function checkAlerts(sub: Subscription, load: Load, force = false) {
-  const reds = (await load(sub.organisation, sub.bufferMonths)).filter((f) => f.rag === "red");
+  const reds = (await load(sub.organisation, sub.context)).filter((f) => f.rag === "red");
   const due = force ? reds : reds.filter((f) => !sub.sent.has(`${f.id}:${f.headline}`));
   if (!due.length) return { sent: 0, red: reds.length };
   if (force && Date.now() - lastSend < 20_000)
@@ -119,4 +121,52 @@ export function watchAlerts(load: Load) {
         process.stdout.write(`[alerts] check failed: ${error instanceof Error ? error.message : error}\n`),
       );
   }, every);
+}
+
+let lastResolved = 0;
+/** Email a receipt when someone resolves a flag in the decision room. */
+export async function sendResolved(details: {
+  to: string;
+  company: string;
+  title: string;
+  headline: string;
+  receipt: string;
+}) {
+  if (Date.now() - lastResolved < 5_000) return false;
+  const body = `<!doctype html><html><body style="margin:0;background:#f5f7f2;padding:24px 12px">
+  <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+  <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px;padding:28px">
+    <tr><td style="font:700 18px/1.2 Arial,sans-serif;color:#24563c;padding-bottom:18px">headroom</td></tr>
+    <tr><td style="padding-bottom:14px"><div style="width:52px;height:52px;border-radius:50%;background:#24563c;color:#fff;font:700 28px/52px Arial,sans-serif;text-align:center">&#10003;</div></td></tr>
+    <tr><td style="font:700 24px/1.3 Arial,sans-serif;color:#1d2a22;padding-bottom:6px">Resolved: ${escape(details.title)}</td></tr>
+    <tr><td style="font:400 15px/1.5 Arial,sans-serif;color:#5b6b60;padding-bottom:18px">Well done. ${escape(details.company)} no longer has this red flag.</td></tr>
+    <tr><td style="padding-bottom:18px">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #d6e6dc;border-left:4px solid #2f8f5b;border-radius:10px;background:#f6fbf7">
+        <tr><td style="padding:16px 18px">
+          <div style="font:600 11px/1.4 Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#2f6b4a">Was: ${escape(details.headline)}</div>
+          <div style="font:700 17px/1.4 Arial,sans-serif;color:#1d2a22;margin-top:6px">${escape(details.receipt)}</div>
+        </td></tr>
+      </table>
+    </td></tr>
+    <tr><td><a href="${appUrl}" style="display:inline-block;background:#24563c;color:#ffffff;font:600 15px/1 Arial,sans-serif;padding:14px 22px;border-radius:8px;text-decoration:none">See what is left</a></td></tr>
+    <tr><td style="font:400 12px/1.5 Arial,sans-serif;color:#8a968d;padding-top:22px">Demo mode. No real money moved.</td></tr>
+  </table></td></tr></table></body></html>`;
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [details.to],
+      subject: `✅ Resolved: ${details.title} · ${details.receipt.split(" · ref")[0]}`,
+      html: body,
+    }),
+  });
+  if (!response.ok)
+    throw new Error(`The receipt email failed: Resend answered ${response.status}.`);
+  lastResolved = Date.now();
+  process.stdout.write(`[alerts] sent resolution for ${details.title} to ${details.to}\n`);
+  return true;
 }

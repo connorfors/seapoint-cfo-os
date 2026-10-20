@@ -19,7 +19,7 @@ function prefersReducedMotion() {
   );
 }
 
-export function RunAction(props: { move: Move; onDone: () => void }): JSX.Element {
+export function RunAction(props: { move: Move; onDone: (receipt: string) => void }): JSX.Element {
   const { move, onDone } = props;
   const plan = useMemo(() => planFor(move), [move]);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -45,7 +45,7 @@ export function RunAction(props: { move: Move; onDone: () => void }): JSX.Elemen
       return () => window.clearTimeout(timer);
     }
     const timer = window.setTimeout(
-      () => onDoneRef.current(),
+      () => onDoneRef.current(plan.receipt),
       reduced ? DONE_DELAY_MS / 2 : DONE_DELAY_MS,
     );
     return () => window.clearTimeout(timer);

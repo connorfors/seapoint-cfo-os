@@ -38,8 +38,10 @@ export function whyForYou(id: string, context: BusinessContext) {
   switch (id) {
     case "overdue-bills":
       return `Late bills cost goodwill with the suppliers ${company} needs while it works to ${lower(context.goal)}.`;
-    case "late-customer":
-      return `Your goal is to ${lower(context.goal)}. Keeping existing customers paying is the cheapest revenue you have.`;
+    case "late-customer": {
+      const term = context.customerTerms[0];
+      return `${term ? `You set ${term.customer}'s terms to the ${term.dueDay}th of the month. ` : ""}Your goal is to ${lower(context.goal)}, and cash from existing customers funds it.`;
+    }
     case "idle-cash":
       return `You keep a ${context.bufferMonths}-month cash buffer and assume no new funding, so idle cash should earn while it waits.`;
     case "currency-exposure":
@@ -48,8 +50,13 @@ export function whyForYou(id: string, context: BusinessContext) {
       return `Your runway floor is ${context.minimumRunway} months. A rise that becomes the new normal moves that date closer.`;
     case "odd-spend":
       return `Every pound that leaks here is a pound not spent on your plan: ${lower(context.bets.split(".")[0] ?? "your next bet")}.`;
-    case "payroll":
-      return `${context.team.split(".")[0]}. Payday is the one date that cannot slip.`;
+    case "payroll": {
+      const joiner = context.newJoiner;
+      const wallet = context.payrollWallet;
+      return joiner
+        ? `${joiner.name} joined as ${joiner.role} this month, so this payroll is bigger than last month's.${wallet ? ` It is paid from ${wallet.name}.` : ""}`
+        : `${context.team.split(".")[0]}. Payday is the one date that cannot slip.`;
+    }
     default:
       return "";
   }

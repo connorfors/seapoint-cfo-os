@@ -26,6 +26,24 @@ export function planFor(move: Move, ref: string = randomRef()): ActionPlan {
   const target = match(text, /\b(?:to|into) (.+?)(?= before |\.$|$)/);
   const tag = ` · ref ${ref}`;
 
+  if (move.kind === "fund_payroll") {
+    const amounts = text.match(new RegExp(MONEY.source, "g")) ?? [];
+    const pay = amounts[0] ?? null;
+    const run = match(text, /\bfor (.+?)\.$/);
+    const into = match(text, /\bto (.+?) for /) ?? target;
+    const joined = move.metric.match(/includes (.+)$/)?.[1] ?? null;
+    return {
+      button: pay ? `Transfer ${pay} now` : move.actionLabel,
+      steps: [
+        `Checking the balance in ${source ?? "your account"}`,
+        joined ? `Adding ${joined} to ${run ?? "this payroll"}` : "Checking the pay run",
+        `Sending ${pay ?? "the money"}${into ? ` to ${into}` : ""}`,
+        `${run ? run.charAt(0).toUpperCase() + run.slice(1) : "Payroll"} funded`,
+      ],
+      receipt: `${pay ?? "Money"} sent to ${into ?? "payroll"}${run ? ` · ${run} funded` : ""}${tag}`,
+    };
+  }
+
   if (transfers.has(move.kind)) {
     const steps = [
       `Checking the balance in ${source ?? "your account"}`,

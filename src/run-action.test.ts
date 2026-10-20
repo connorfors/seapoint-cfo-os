@@ -42,10 +42,29 @@ test("treasury move names the amount and both accounts", () => {
 });
 
 test("transfer without an amount falls back to the action label", () => {
-  const plan = planFor(move({ kind: "fund_payroll", actionLabel: "Fund payroll", decision: "Top up payroll." }));
-  assert.equal(plan.button, "Fund payroll");
+  const plan = planFor(move({ kind: "move_to_treasury", actionLabel: "Move to treasury", decision: "Top up treasury." }));
+  assert.equal(plan.button, "Move to treasury");
   assert.equal(plan.steps[0], "Checking the balance in your account");
   assert.match(plan.receipt, /^Money sent to the account · ref HR-\d{4}$/);
+});
+
+test("funding payroll names the wallet, the joiner and the run", () => {
+  const plan = planFor(
+    move({
+      kind: "fund_payroll",
+      metric: "October payroll, 25 Oct · includes Maya Chen",
+      decision: "Transfer £15,684.12 from Northstar Modulr GBP to Deel payroll wallet for October payroll.",
+    }),
+    "HR-2000",
+  );
+  assert.equal(plan.button, "Transfer £15,684.12 now");
+  assert.deepEqual(plan.steps, [
+    "Checking the balance in Northstar Modulr GBP",
+    "Adding Maya Chen to October payroll",
+    "Sending £15,684.12 to Deel payroll wallet",
+    "October payroll funded",
+  ]);
+  assert.equal(plan.receipt, "£15,684.12 sent to Deel payroll wallet · October payroll funded · ref HR-2000");
 });
 
 test("bills and payroll read their source account", () => {

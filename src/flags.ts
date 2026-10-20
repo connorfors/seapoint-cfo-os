@@ -56,13 +56,31 @@ export type FlagInputs = {
     count: number;
   }[];
   credits: { payer: string; date: string; amount: number }[];
+  /** Invoice due day of the month per customer, from the business context. */
+  terms?: { customer: string; dueDay: number }[];
+  /** Someone joining soon, from the business context. */
+  joiner?: {
+    name: string;
+    role: string;
+    startDate: string;
+    annualSalary: number;
+    currency: string;
+  } | null;
+  /** Units of the joiner's currency per unit of the reporting currency. */
+  joinerRate?: number | null;
   payroll: {
     name: string;
     status: string;
     payDate: string | null;
+    /** The pay period as written on the run, e.g. "October 2026". */
+    period?: string;
     net: number;
     currency: string;
+    people?: number;
+    annualSalaries?: number;
   }[];
+  /** The account payroll is paid from, when it sits outside Seapoint (e.g. a Deel wallet). */
+  payrollWallet?: { name: string; balance: number } | null;
 };
 
 const day = 86_400_000;
@@ -138,8 +156,20 @@ export function overdueBills(input: FlagInputs): Finding | null {
   const dueSoon = dated.filter(
     (bill) => bill.due! >= input.today && bill.due! <= addDays(input.today, 7),
   );
-  const list = overdue.length ? overdue : dueSoon;
-  if (!list.length) return null;
+  const all = overdue.length ? overdue : dueSoon;
+  if (!all.length) return null;
+  // The same supplier, reference and amount twice is a duplicate: hold it back, do not pay it twice.
+  const seen = new Set<string>();
+  const duplicates: typeof all = [];
+  const list = all.filter((bill) => {
+    const key = `${bill.vendor}|${bill.reference}|${bill.amount}|${bill.currency}`;
+    if (seen.has(key)) {
+      duplicates.push(bill);
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
   let total = 0;
   const unconverted: string[] = [];
   for (const bill of list) {
@@ -169,10 +199,74 @@ export function overdueBills(input: FlagInputs): Finding | null {
       ...(unconverted.length
         ? [`Not converted (no account in that currency): ${unconverted.join(", ")}`]
         : []),
+      ...duplicates.map(
+        (bill) =>
+          `Held back as a duplicate: ${bill.vendor} ${bill.reference}, ${money(bill.amount, bill.currency ?? input.currency)}. It appears twice.`,
+      ),
     ],
-    decision: `Pay ${list.length} ${overdue.length ? "overdue" : "upcoming"} bills, ${money(total, input.currency)}${from ? `, from ${from.name}` : ""}.`,
+    decision: `Pay ${list.length} ${overdue.length ? "overdue" : "upcoming"} bills, ${money(total, input.currency)}${from ? `, from ${from.name}` : ""}${duplicates.length ? `, and hold back ${duplicates.length} duplicate` : ""}.`,
     action: { kind: "pay_bills", label: "Pay these bills" },
     source: "Seapoint supplier invoices, unpaid, by due date",
+  };
+}
+
+function againstTerms(
+  input: FlagInputs,
+  payer: string,
+  payments: { date: string; amount: number }[],
+  dueDay: number,
+  expected: string,
+  shrinking: boolean,
+): Finding | null {
+  const dueOn = (date: string) => `${date.slice(0, 8)}${String(dueDay).padStart(2, "0")}`;
+  const lateness = payments.map((p) => days(dueOn(p.date), p.date));
+  const typical = Math.round(median(lateness));
+  const consistent = lateness.filter((l) => Math.abs(l - typical) <= 2).length;
+  const due = dueOn(expected);
+  const overdue = days(due, input.today);
+  if (typical < 3 && overdue < 3) return null;
+  const since = new Intl.DateTimeFormat("en-GB", { month: "short", year: "numeric", timeZone: "UTC" }).format(
+    new Date(payments[0]!.date),
+  );
+  const recent = payments.slice(-3).map((p) => money(p.amount, input.currency));
+  const ordinal = `${dueDay}${dueDay % 10 === 1 && dueDay !== 11 ? "st" : dueDay % 10 === 2 && dueDay !== 12 ? "nd" : dueDay % 10 === 3 && dueDay !== 13 ? "rd" : "th"}`;
+  return {
+    id: "late-customer",
+    rag: "red",
+    title: "Customers paying late",
+    headline: `${payer} pays ${typical} days late`,
+    metric:
+      consistent === payments.length
+        ? `Every payment since ${since}${overdue > 0 ? ` · now ${overdue} days overdue` : ""}`
+        : `${consistent} of ${payments.length} payments${overdue > 0 ? ` · now ${overdue} days overdue` : ""}`,
+    detail: [
+      `Your terms: ${payer} invoices are due on the ${ordinal}.`,
+      `${consistent} of ${payments.length} payments arrived about ${typical} days after that.`,
+      overdue > 0
+        ? `This cycle's payment was due on ${shortDate(due)} and has not arrived.`
+        : `The next payment is due on ${shortDate(due)}.`,
+      ...(shrinking ? [`Last 3 payments: ${recent.join(", ")}. Each one is smaller.`] : []),
+    ],
+    decision: `Send ${payer} a payment reminder${overdue > 0 ? ` for the ${shortDate(due)} invoice` : ""}, and ask to move their payment run to the ${ordinal}.`,
+    action: {
+      kind: "chase_customer",
+      label: "Send reminder",
+      email: {
+        subject: `Payment due ${shortDate(due)}`,
+        body: [
+          `Hi ${payer} team,`,
+          "",
+          overdue > 0
+            ? `Our invoice was due on ${shortDate(due)}, and we have not received payment yet. Could you confirm when it will be sent?`
+            : `A reminder that our next invoice is due on ${shortDate(due)}.`,
+          "",
+          `Our terms are payment by the ${ordinal}. Your last ${payments.length} payments arrived about ${typical} days later. Could your team move your payment run so it lands by the ${ordinal}?`,
+          "",
+          "Thanks,",
+        ].join("\n"),
+      },
+    },
+    source: "Seapoint transactions, money in, against your payment terms",
   };
 }
 
@@ -195,6 +289,14 @@ export function lateCustomer(input: FlagInputs): Finding | null {
     const late = days(expected, input.today);
     const recent = payments.slice(-3).map((p) => p.amount);
     const shrinking = recent[0] > recent[1] && recent[1] > recent[2];
+    const term = input.terms?.find(
+      (t) => t.customer.trim().toLowerCase() === payer.trim().toLowerCase(),
+    );
+    if (term) {
+      const finding = againstTerms(input, payer, payments, term.dueDay, expected, shrinking);
+      if (finding && (!worst || worst.score < 100)) worst = { ...finding, score: 100 };
+      continue;
+    }
     if (late < 2 && !shrinking) continue;
     const drop = recent[0] - recent[2];
     const score = (late >= 2 ? late : 0) + (shrinking ? 7 : 0);
@@ -376,59 +478,131 @@ export function spendingTrend(input: FlagInputs): Finding | null {
   };
 }
 
+function joinerCover(input: FlagInputs): Finding | null {
+  const joiner = input.joiner;
+  if (!joiner) return null;
+  if (input.payroll.some((r) => r.currency === joiner.currency && open.has(r.status))) return null;
+  const cur = joiner.currency;
+  const monthly = joiner.annualSalary / 12;
+  const payDay = `${joiner.startDate.slice(0, 7)}-25`;
+  const held = input.accounts
+    .filter((a) => a.type === "BANKING" && a.currency === cur)
+    .reduce((sum, a) => sum + a.balance, 0);
+  if (held >= monthly || payDay < input.today) return null;
+  const short = monthly - held;
+  const rate = cur === input.currency ? 1 : (input.joinerRate ?? null);
+  const from = mainAccount(input);
+  const cost = rate ? Math.ceil((short / rate) * 100) / 100 : null;
+  const moveBy = addDays(payDay, -5);
+  return {
+    id: "payroll",
+    rag: "red",
+    title: "Payroll underfunded",
+    headline: `${money(short, cur, true)} short in ${cur}`,
+    metric: `${joiner.name}'s first pay, ${shortDate(payDay)}`,
+    detail: [
+      `${joiner.name} joins as ${joiner.role} on ${shortDate(joiner.startDate)}, on ${money(joiner.annualSalary, cur)} a year, paid in ${cur}.`,
+      `First month's pay is ${money(monthly, cur)}. You hold ${held > 0 ? money(held, cur) : `no ${cur}`}.`,
+      rate && rate !== 1
+        ? `Seapoint's rate today: 1 ${input.currency} = ${rate.toFixed(4)} ${cur}, so it costs ${money(cost!, input.currency)}.`
+        : `No ${input.currency} to ${cur} rate is available.`,
+      `Move it by ${shortDate(moveBy)} so it lands before payday on ${shortDate(payDay)}.`,
+    ],
+    decision:
+      cost && from
+        ? `Convert ${money(cost, input.currency)} from ${from.name} to ${money(short, cur)} for ${joiner.name}'s first salary.`
+        : `Fund ${money(short, cur)} in ${cur} before ${shortDate(moveBy)} for ${joiner.name}'s first salary.`,
+    action: { kind: "fund_payroll", label: "Fund payroll" },
+    source: "Your new joiner, with Seapoint balances and today's rate",
+  };
+}
+
+const open = new Set(["draft", "needs_approval", "to_pay", "scheduled"]);
+const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+
+/** Payday for a run: its own date, else the 25th of its period's month, else of this month. */
+function payDayOf(run: FlagInputs["payroll"][number], today: string) {
+  if (run.payDate) return run.payDate;
+  const text = (run.period ?? "").toLowerCase();
+  const month = monthNames.findIndex((m) => text.includes(m));
+  const year = text.match(/\b(20\d\d)\b/)?.[1];
+  if (month >= 0 && year) return `${year}-${String(month + 1).padStart(2, "0")}-25`;
+  return `${today.slice(0, 7)}-25`;
+}
+
 export function payrollCover(input: FlagInputs): Finding | null {
+  const joining = joinerCover(input);
+  if (joining) return joining;
   const run = input.payroll
-    .filter((r) => ["draft", "needs_approval", "to_pay", "scheduled"].includes(r.status))
-    .sort((a, b) => (a.payDate ?? "9999").localeCompare(b.payDate ?? "9999"))[0];
+    .filter((r) => open.has(r.status))
+    .sort((a, b) => payDayOf(a, input.today).localeCompare(payDayOf(b, input.today)))[0];
   if (!run) return null;
+  const cur = run.currency;
+  const payDay = payDayOf(run, input.today);
+  const label = run.period ? `${run.period.split(" ")[0]} payroll` : run.name;
+
+  // A joiner who starts on or before payday joins this run, at the team's net-to-gross ratio.
+  const joiner =
+    input.joiner && input.joiner.currency === cur && input.joiner.startDate <= payDay
+      ? input.joiner
+      : null;
+  const ratio =
+    run.annualSalaries && run.annualSalaries > 0 ? run.net / (run.annualSalaries / 12) : 0.7;
+  const joinerNet = joiner ? Math.round((joiner.annualSalary / 12) * ratio * 100) / 100 : 0;
+  const need = run.net + joinerNet;
+  const people = (run.people ?? 0) + (joiner ? 1 : 0);
+
   const accounts = input.accounts
-    .filter((a) => a.type === "BANKING" && a.currency === run.currency)
+    .filter((a) => a.type === "BANKING" && a.currency === cur)
     .sort((a, b) => b.balance - a.balance);
-  const total = accounts.reduce((sum, a) => sum + a.balance, 0);
   const best = accounts[0];
-  const when = run.payDate ? `on ${shortDate(run.payDate)}` : "this month";
-  const pay = money(run.net, run.currency);
-  if (!best || total < run.net)
+  const wallet = input.payrollWallet ?? null;
+  const into = wallet?.name ?? best?.name ?? `a ${cur} account`;
+  const held = wallet ? wallet.balance : (best?.balance ?? 0);
+  const moveBy = addDays(payDay, -3);
+  const lines = [
+    `${label} in Seapoint: ${money(run.net, cur)} net for ${run.people ?? "your"} people.`,
+    ...(joiner
+      ? [
+          `${joiner.name} joined as ${joiner.role} on ${shortDate(joiner.startDate)}, on ${money(joiner.annualSalary, cur)} a year: about ${money(joinerNet, cur)} net this month, at your team's net-to-gross ratio.`,
+        ]
+      : []),
+    `Total to fund: ${money(need, cur)} for ${people} people. ${into} holds ${money(held, cur)}.`,
+  ];
+
+  if (held < need) {
+    const short = Math.round((need - held) * 100) / 100;
+    const from = wallet ? best : accounts.find((a) => a !== best && a.balance >= short);
     return {
       id: "payroll",
       rag: "red",
       title: "Payroll underfunded",
-      headline: `${money(run.net - total, run.currency, true)} short`,
-      metric: `${run.name}, ${when}`,
+      headline: `${money(short, cur, true)} short`,
+      metric: `${label}, ${shortDate(payDay)}${joiner ? ` · includes ${joiner.name}` : ""}`,
       detail: [
-        `${run.name} needs ${pay} in ${run.currency}.`,
-        `${run.currency} accounts hold ${money(total, run.currency)}.`,
+        ...lines,
+        held < run.net / (run.people || 1)
+          ? "As things stand, nobody can be paid."
+          : `As things stand, payroll falls ${money(short, cur)} short.`,
+        `Move it by ${shortDate(moveBy)} so it clears before payday on ${shortDate(payDay)}.`,
       ],
-      decision: `Fund ${run.currency} accounts with ${money(run.net - total, run.currency)} before payday.`,
+      decision: from
+        ? `Transfer ${money(short, cur)} from ${from.name} to ${into} for ${label}.`
+        : `Fund ${into} with ${money(short, cur)} for ${label}.`,
       action: { kind: "fund_payroll", label: "Fund payroll" },
-      source: "Seapoint pay runs and account balances",
+      source: wallet
+        ? "Seapoint pay runs and balances, your new joiner, and the Deel wallet balance"
+        : "Seapoint pay runs and balances, with your new joiner",
     };
-  if (best.balance < run.net)
-    return {
-      id: "payroll",
-      rag: "amber",
-      title: "Payroll underfunded",
-      headline: `${money(run.net - best.balance, run.currency, true)} in the wrong account`,
-      metric: `${run.name}, ${when}`,
-      detail: [
-        `${run.name} needs ${pay}. No single ${run.currency} account holds it.`,
-        `${best.name} holds ${money(best.balance, run.currency)}.`,
-      ],
-      decision: `Move ${money(run.net - best.balance, run.currency)} into ${best.name} before payday.`,
-      action: { kind: "fund_payroll", label: "Move the money" },
-      source: "Seapoint pay runs and account balances",
-    };
+  }
   return {
     id: "payroll",
     rag: "green",
     title: "Payroll funded",
-    headline: `${pay} covered`,
-    metric: `${run.name}, ${when}`,
-    detail: [
-      `${run.name} needs ${pay}. ${best.name} holds ${money(best.balance, run.currency)}.`,
-      `Status in Seapoint: ${run.status.replace("_", " ")}.`,
-    ],
-    decision: `Pay ${run.name}, ${pay}, from ${best.name}.`,
+    headline: `${money(need, cur)} covered`,
+    metric: `${label}, ${shortDate(payDay)}`,
+    detail: [...lines, `Status in Seapoint: ${run.status.replace("_", " ")}.`],
+    decision: `Pay ${label}, ${money(need, cur)}, from ${into}.`,
     action: { kind: "pay_payroll", label: "Pay the run" },
     source: "Seapoint pay runs and account balances",
   };

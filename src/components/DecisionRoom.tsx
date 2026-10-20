@@ -25,6 +25,8 @@ export function DecisionRoom({
   flagError,
   alertEmail,
   onSendAlert,
+  onResolved,
+  openMove,
   onEvidence,
 }: {
   moves: Move[];
@@ -33,6 +35,10 @@ export function DecisionRoom({
   flagError: string;
   alertEmail: string | null;
   onSendAlert: () => Promise<string>;
+  /** Called when an action finishes; returns a note such as "Receipt emailed to …". */
+  onResolved: (move: Move, receipt: string) => Promise<string | null>;
+  /** A move to open straight away, for example from an alert email link. */
+  openMove: string | null;
   onEvidence: () => void;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -41,6 +47,8 @@ export function DecisionRoom({
   const [phase, setPhase] = useState<"act" | "celebrate">("act");
   const [alertNote, setAlertNote] = useState("");
   const [sending, setSending] = useState(false);
+  const [receiptNote, setReceiptNote] = useState("");
+  const opened = useRef(false);
   const dialog = useRef<HTMLDivElement>(null);
   const move = moves.find((m) => m.id === active);
   const handled = moves.filter((m) => done.has(keyOf(m))).length;
@@ -79,11 +87,23 @@ export function DecisionRoom({
     if (active) dialog.current?.focus();
   }, [phase, active]);
 
+  useEffect(() => {
+    if (opened.current || !openMove || !moves.some((m) => m.id === openMove)) return;
+    opened.current = true;
+    setActive(openMove);
+    setPhase("act");
+  }, [openMove, moves]);
+
   function open(id: string) {
     setActive(id);
     setPhase("act");
+    setReceiptNote("");
   }
-  function complete(finished: Move) {
+  function complete(finished: Move, receipt: string) {
+    setReceiptNote("");
+    onResolved(finished, receipt)
+      .then((note) => setReceiptNote(note ?? ""))
+      .catch(() => setReceiptNote(""));
     const updated = new Set(done).add(keyOf(finished));
     setDone(updated);
     try {
@@ -273,12 +293,12 @@ export function DecisionRoom({
                 )}
                 {move.detail.length > 0 && (
                   <ul className="dialog-detail">
-                    {move.detail.map((line) => (
-                      <li key={line}>{line}</li>
+                    {move.detail.map((line, index) => (
+                      <li key={index}>{line}</li>
                     ))}
                   </ul>
                 )}
-                <RunAction move={move} onDone={() => complete(move)} />
+                <RunAction move={move} onDone={(receipt) => complete(move, receipt)} />
                 <p className="dialog-source">Source: {move.source}</p>
               </>
             ) : (
@@ -298,6 +318,11 @@ export function DecisionRoom({
                 <span className="celebrate-impact">
                   <Check size={14} /> {move.impact}
                 </span>
+                {receiptNote && (
+                  <p className="celebrate-receipt">
+                    <Mail size={14} /> {receiptNote}
+                  </p>
+                )}
                 <div className="celebrate-actions">
                   {next ? (
                     <button className="move-button" onClick={() => open(next.id)}>

@@ -512,6 +512,16 @@
   border-radius: var(--radius-pill);
   animation: rise 500ms 280ms var(--ease-out) both;
 }
+.celebrate-receipt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--color-muted);
+  animation: rise 500ms 320ms var(--ease-out) both;
+}
 .celebrate-actions {
   display: grid;
   gap: 10px;

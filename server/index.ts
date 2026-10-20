@@ -2,8 +2,8 @@ import { createServer, type ServerResponse } from "node:http";
 import { connectSeapoint, type SeapointConnection } from "./mcp";
 import { financialSnapshot, organisations } from "./finance";
 import { flagsFor } from "./flags";
-import { alertRecipientError, subscribe, watchAlerts } from "./alerts";
-import { snapshotSchema, type Snapshot } from "../src/contracts";
+import { alertRecipientError, sendResolved, subscribe, watchAlerts } from "./alerts";
+import { flagContextSchema, snapshotSchema, type FlagContext, type Snapshot } from "../src/contracts";
 
 let connection: Promise<SeapointConnection> | undefined;
 async function getConnection() {
@@ -18,12 +18,17 @@ async function getConnection() {
 async function accessible(client: SeapointConnection, id: string) {
   return (await organisations(client)).some((item) => item.id === id);
 }
-async function loadFlags(organisation: string, bufferMonths: number) {
-  return (await flagsFor(await getConnection(), organisation, bufferMonths)).flags;
+async function loadFlags(organisation: string, context: FlagContext) {
+  return (await flagsFor(await getConnection(), organisation, context)).flags;
 }
-function buffer(value: unknown) {
-  const months = Number(value ?? 3);
-  return Number.isFinite(months) && months >= 0 && months <= 24 ? months : 3;
+/** The business context the flags read, or the defaults when it is missing or invalid. */
+function flagContext(value: unknown): FlagContext {
+  try {
+    const raw = typeof value === "string" ? JSON.parse(value) : (value ?? {});
+    return flagContextSchema.parse(raw);
+  } catch {
+    return flagContextSchema.parse({});
+  }
 }
 async function readJson(request: import("node:http").IncomingMessage) {
   let body = "";
@@ -71,12 +76,32 @@ const server = createServer(async (request, response) => {
     return;
   }
   const url = new URL(request.url ?? "/", "http://127.0.0.1:4318");
+  const resolvedPost = request.method === "POST" && url.pathname === "/api/alerts/resolved";
   const alertPost = request.method === "POST" && url.pathname === "/api/alerts";
-  if (request.method !== "GET" && !alertPost) {
+  if (request.method !== "GET" && !alertPost && !resolvedPost) {
     json(response, 405, { error: "The demo only reads financial data." });
     return;
   }
   try {
+    if (resolvedPost) {
+      const body = await readJson(request);
+      const to = String(body.to ?? "").trim();
+      const problem = alertRecipientError(to);
+      if (problem) {
+        json(response, 400, { error: problem });
+        return;
+      }
+      const text = (key: string, max: number) => String(body[key] ?? "").slice(0, max);
+      const sent = await sendResolved({
+        to,
+        company: text("company", 100) || "your company",
+        title: text("title", 80),
+        headline: text("headline", 120),
+        receipt: text("receipt", 200),
+      });
+      json(response, 200, { sent, to });
+      return;
+    }
     if (alertPost) {
       const body = await readJson(request);
       const to = String(body.to ?? "").trim();
@@ -100,7 +125,7 @@ const server = createServer(async (request, response) => {
             to,
             organisation,
             company: String(body.company ?? "your company").slice(0, 100),
-            bufferMonths: buffer(body.bufferMonths),
+            context: flagContext(body.context),
           },
           loadFlags,
           body.force === true,
@@ -130,7 +155,7 @@ const server = createServer(async (request, response) => {
         });
         return;
       }
-      json(response, 200, await flagsFor(client, id, buffer(url.searchParams.get("buffer"))));
+      json(response, 200, await flagsFor(client, id, flagContext(url.searchParams.get("context"))));
     } else if (url.pathname === "/api/snapshot") {
       const id = url.searchParams.get("organisation");
       if (!id) {

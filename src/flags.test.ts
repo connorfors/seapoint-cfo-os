@@ -146,12 +146,26 @@ test("payroll is green when one account covers it", () => {
   assert.match(flag.decision, /from Northstar Modulr GBP/);
 });
 
-test("payroll is amber when only the accounts together cover it", () => {
-  const payroll = [{ name: "Run", status: "scheduled", payDate: "2026-10-25", net: 600_000, currency: "GBP" }];
-  const flag = payrollCover(input({ payroll }))!;
-  assert.equal(flag.rag, "amber");
+test("payroll adds a new joiner to the Seapoint run and funds the near-empty wallet", () => {
+  const flag = payrollCover(
+    input({
+      payroll: [
+        { name: "United Kingdom Payroll", status: "to_pay", payDate: null, period: "October 2026", net: 11_800, currency: "GBP", people: 3, annualSalaries: 206_000 },
+      ],
+      joiner: { name: "Maya Chen", role: "Head of Sales", startDate: "2026-10-01", annualSalary: 90_000, currency: "GBP" },
+      payrollWallet: { name: "Deel payroll wallet", balance: 412 },
+    }),
+  )!;
+  assert.equal(flag.rag, "red");
   assert.equal(flag.title, "Payroll underfunded");
-  assert.match(flag.decision, /Move £34,600\.00 into Northstar Modulr GBP/);
+  assert.equal(flag.metric, "October payroll, 25 Oct · includes Maya Chen");
+  assert.match(flag.detail[1], /about £5,155\.34 net this month/);
+  assert.match(flag.detail[2], /Total to fund: £16,955\.34 for 4 people\. Deel payroll wallet holds £412\.00\./);
+  assert.equal(flag.detail[3], "As things stand, nobody can be paid.");
+  assert.equal(
+    flag.decision,
+    "Transfer £16,543.34 from Northstar Modulr GBP to Deel payroll wallet for October payroll.",
+  );
 });
 
 test("payroll is red when its currency cannot cover it", () => {
@@ -181,4 +195,37 @@ test("red is today, amber this week, green this month, in that order", () => {
       "green:month:payroll",
     ],
   );
+});
+
+test("a new joiner paid in a currency the company does not hold turns payroll red", () => {
+  const flag = payrollCover(
+    input({
+      joiner: { name: "Maya Chen", role: "Head of Sales, US", startDate: "2026-11-02", annualSalary: 140_000, currency: "USD" },
+      joinerRate: 1.34,
+    }),
+  )!;
+  assert.equal(flag.rag, "red");
+  assert.equal(flag.title, "Payroll underfunded");
+  assert.equal(flag.headline, "US$12k short in USD");
+  assert.match(flag.metric, /Maya Chen's first pay, 25 Nov/);
+  assert.equal(
+    flag.decision,
+    "Convert £8,706.47 from Northstar Modulr GBP to US$11,666.67 for Maya Chen's first salary.",
+  );
+});
+
+test("a customer paying on the 18th against terms of the 8th is 10 days late every time", () => {
+  const flag = lateCustomer(input({ terms: [{ customer: "Cormorant Systems", dueDay: 8 }] }))!;
+  assert.equal(flag.rag, "red");
+  assert.equal(flag.headline, "Cormorant Systems pays 10 days late");
+  assert.equal(flag.metric, "Every payment since Feb 2026 · now 12 days overdue");
+  assert.match(flag.action.email!.body, /Our terms are payment by the 8th/);
+});
+
+test("a bill that appears twice is paid once and named as a duplicate", () => {
+  const twice = { vendor: "Snowflake", reference: "SNF-10", amount: 21_800, currency: "GBP", due: "2026-09-15" };
+  const flag = overdueBills(input({ unpaidBills: [twice, { ...twice }] }))!;
+  assert.match(flag.metric, /^1 bills/);
+  assert.equal(flag.decision, "Pay 1 overdue bills, £21,800.00, from Northstar Modulr GBP, and hold back 1 duplicate.");
+  assert.ok(flag.detail.some((line) => line.startsWith("Held back as a duplicate: Snowflake SNF-10")));
 });

@@ -70,6 +70,32 @@ export const snapshotSchema = z.object({
 });
 export type Snapshot = z.infer<typeof snapshotSchema>;
 
+export const currencies = ["GBP", "USD", "EUR", "CHF", "AUD", "PLN"] as const;
+export const newJoinerSchema = z.object({
+  name: z.string().min(1).max(80),
+  role: z.string().max(80),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  annualSalary: z.number().min(0).max(10_000_000),
+  currency: z.enum(currencies),
+});
+export type NewJoiner = z.infer<typeof newJoinerSchema>;
+export const customerTermSchema = z.object({
+  customer: z.string().min(1).max(80),
+  dueDay: z.number().int().min(1).max(28),
+});
+export const payrollWalletSchema = z.object({
+  name: z.string().min(1).max(80),
+  balance: z.number().min(0).max(100_000_000),
+});
+/** The part of the business context the flags engine reads. */
+export const flagContextSchema = z.object({
+  bufferMonths: z.number().min(0).max(24).default(3),
+  newJoiner: newJoinerSchema.nullable().default(null),
+  customerTerms: z.array(customerTermSchema).max(10).default([]),
+  payrollWallet: payrollWalletSchema.nullable().default(null),
+});
+export type FlagContext = z.infer<typeof flagContextSchema>;
+
 export const contextSchema = z.object({
   company: z.string().min(1).max(100),
   product: z.string().min(1).max(600),
@@ -88,9 +114,20 @@ export const contextSchema = z.object({
   budget: z.number().min(0).max(100_000_000),
   minimumRunway: z.number().min(1).max(60),
   bufferMonths: z.number().min(0).max(24).default(3),
+  newJoiner: newJoinerSchema.nullable().default(null),
+  customerTerms: z.array(customerTermSchema).max(10).default([]),
+  payrollWallet: payrollWalletSchema.nullable().default(null),
   employerOverhead: z.number().min(0).max(1),
 });
 export type BusinessContext = z.infer<typeof contextSchema>;
+export function flagContextOf(context: BusinessContext): FlagContext {
+  return {
+    bufferMonths: context.bufferMonths,
+    newJoiner: context.newJoiner,
+    customerTerms: context.customerTerms,
+    payrollWallet: context.payrollWallet,
+  };
+}
 
 export const demoContext: BusinessContext = {
   company: "Northstar Labs",
@@ -119,6 +156,15 @@ export const demoContext: BusinessContext = {
   budget: 700_000,
   minimumRunway: 12,
   bufferMonths: 3,
+  newJoiner: {
+    name: "Maya Chen",
+    role: "Head of Sales",
+    startDate: "2026-10-01",
+    annualSalary: 90_000,
+    currency: "GBP",
+  },
+  payrollWallet: { name: "Deel payroll wallet", balance: 412 },
+  customerTerms: [{ customer: "Cormorant Systems", dueDay: 8 }],
   employerOverhead: 0.2,
 };
 

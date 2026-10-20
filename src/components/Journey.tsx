@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import {
   contextSchema,
+  currencies,
+  demoContext,
   type BusinessContext,
   type Organisation,
   type Snapshot,
@@ -81,6 +83,8 @@ const fieldMessages: Record<string, string> = {
   goal: "Add your goal in one line.",
   minimumRunway: "Minimum runway must be 1 to 60 months.",
   bufferMonths: "Cash buffer must be 0 to 24 months.",
+  newJoiner: "Check the new joiner: name, start date and salary.",
+  customerTerms: "Payment terms need a customer and a due day from 1 to 28.",
 };
 
 function storedEmail() {
@@ -91,13 +95,128 @@ function storedEmail() {
   }
 }
 
+/** Step 1 starts empty so the import from Notion and Slack can fill it in. */
+function blankForImport(context: BusinessContext): BusinessContext {
+  return { ...context, company: "", goal: "", newJoiner: null, customerTerms: [], payrollWallet: null };
+}
+
+type Source = {
+  app: "notion" | "slack" | "deel";
+  place: string;
+  found: string;
+  fill: (context: BusinessContext) => BusinessContext;
+};
+/** Dummy integrations for the demo: what each tool "finds", and the fields it fills. */
+const sources: Source[] = [
+  {
+    app: "notion",
+    place: "Company wiki",
+    found: "Northstar Labs · goal: win 10 new retail customers",
+    fill: (c) => ({ ...c, company: demoContext.company, goal: demoContext.goal, bottleneck: demoContext.bottleneck }),
+  },
+  {
+    app: "notion",
+    place: "Hiring plan · Q4",
+    found: "Maya Chen, Head of Sales, joined 1 Oct on £90k",
+    fill: (c) => ({ ...c, newJoiner: demoContext.newJoiner }),
+  },
+  {
+    app: "slack",
+    place: "#finance",
+    found: "“Cormorant’s invoices are due on the 8th, they always pay on the 18th”",
+    fill: (c) => ({ ...c, customerTerms: demoContext.customerTerms }),
+  },
+  {
+    app: "deel",
+    place: "Payroll wallet",
+    found: "Pays the UK team · balance £412",
+    fill: (c) => ({ ...c, payrollWallet: demoContext.payrollWallet }),
+  },
+  {
+    app: "notion",
+    place: "Finance policy",
+    found: "12-month runway floor · 3 months of cash on hand",
+    fill: (c) => ({ ...c, minimumRunway: demoContext.minimumRunway, bufferMonths: demoContext.bufferMonths }),
+  },
+];
+
+function ImportPanel({
+  draft,
+  setDraft,
+}: {
+  draft: BusinessContext;
+  setDraft: (context: BusinessContext) => void;
+}) {
+  const [done, setDone] = useState(-1);
+  const [running, setRunning] = useState(false);
+  const latest = useRef(draft);
+  latest.current = draft;
+  function run() {
+    setRunning(true);
+    setDone(-1);
+    sources.forEach((source, index) => {
+      window.setTimeout(() => {
+        setDraft(source.fill(latest.current));
+        setDone(index);
+        if (index === sources.length - 1) setRunning(false);
+      }, 700 + index * 750);
+    });
+  }
+  return (
+    <div className="journey-import" aria-live="polite">
+      <div className="journey-import-head">
+        <div>
+          <strong>Pull it from your tools</strong>
+          <span>Headroom reads your wiki, hiring plan, finance channel and payroll.</span>
+        </div>
+        <div className="journey-import-apps" aria-hidden="true">
+          <i className="app-notion">N</i>
+          <i className="app-slack">#</i>
+          <i className="app-deel">d</i>
+        </div>
+      </div>
+      {done < 0 && !running ? (
+        <button type="button" className="primary" onClick={run}>
+          Import from Notion and Slack <ArrowRight size={14} />
+        </button>
+      ) : (
+        <ul>
+          {sources.map((source, index) => (
+            <li key={source.place} className={index <= done ? "found" : index === done + 1 ? "reading" : ""}>
+              <i className={`app-${source.app}`} aria-hidden="true">
+                {source.app === "notion" ? "N" : source.app === "slack" ? "#" : "d"}
+              </i>
+              <span>
+                <b>
+                  {source.app === "notion" ? "Notion" : source.app === "slack" ? "Slack" : "Deel"} · {source.place}
+                </b>
+                <small>{index <= done ? source.found : index === done + 1 ? "Reading…" : "Waiting"}</small>
+              </span>
+              {index <= done ? (
+                <Check size={16} strokeWidth={2.5} />
+              ) : index === done + 1 ? (
+                <LoaderCircle size={16} className="spin" />
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {done === sources.length - 1 && (
+        <p className="journey-import-done">
+          <Check size={14} /> Filled in from {sources.length} sources. Check it, then continue.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`;
 }
 
 export function Journey(props: JourneyProps) {
   const [step, setStep] = useState<Step>(1);
-  const [draft, setDraft] = useState(props.context);
+  const [draft, setDraft] = useState(() => blankForImport(props.context));
   const heading = useRef<HTMLHeadingElement>(null);
   const shownStep = useRef(step);
 
@@ -202,6 +321,7 @@ function BusinessStep({
         Seapoint shows the numbers. This tells Headroom which numbers matter to
         you.
       </p>
+      <ImportPanel draft={draft} setDraft={setDraft} />
       <div className="journey-fields">
         <label className="journey-field">
           Company name
@@ -248,6 +368,176 @@ function BusinessStep({
             ))}
           </div>
           <small>Headroom shapes its spending plan around this.</small>
+        </fieldset>
+        <fieldset className="journey-field journey-group">
+          <legend>Anyone joining soon?</legend>
+          {draft.newJoiner ? (
+            <>
+              <div className="journey-pair">
+                <label className="journey-field">
+                  Name
+                  <input
+                    value={draft.newJoiner.name}
+                    maxLength={80}
+                    onChange={(e) =>
+                      setDraft({ ...draft, newJoiner: { ...draft.newJoiner!, name: e.target.value } })
+                    }
+                  />
+                </label>
+                <label className="journey-field">
+                  Role
+                  <input
+                    value={draft.newJoiner.role}
+                    maxLength={80}
+                    onChange={(e) =>
+                      setDraft({ ...draft, newJoiner: { ...draft.newJoiner!, role: e.target.value } })
+                    }
+                  />
+                </label>
+              </div>
+              <div className="journey-triple">
+                <label className="journey-field">
+                  Start date
+                  <input
+                    type="date"
+                    value={draft.newJoiner.startDate}
+                    onChange={(e) =>
+                      setDraft({ ...draft, newJoiner: { ...draft.newJoiner!, startDate: e.target.value } })
+                    }
+                  />
+                </label>
+                <label className="journey-field">
+                  Salary · a year
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={1000}
+                    value={Number.isNaN(draft.newJoiner.annualSalary) ? "" : draft.newJoiner.annualSalary}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        newJoiner: { ...draft.newJoiner!, annualSalary: e.target.valueAsNumber },
+                      })
+                    }
+                  />
+                </label>
+                <label className="journey-field">
+                  Paid in
+                  <select
+                    value={draft.newJoiner.currency}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        newJoiner: {
+                          ...draft.newJoiner!,
+                          currency: e.target.value as (typeof currencies)[number],
+                        },
+                      })
+                    }
+                  >
+                    {currencies.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <small>
+                Headroom checks their first payday against the cash you hold in that currency.{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => setDraft({ ...draft, newJoiner: null })}
+                >
+                  No one is joining
+                </button>
+              </small>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() =>
+                setDraft({ ...draft, newJoiner: demoContext.newJoiner })
+              }
+            >
+              Add a new joiner
+            </button>
+          )}
+        </fieldset>
+        {draft.payrollWallet && (
+          <fieldset className="journey-field journey-group">
+            <legend>Payroll is paid from</legend>
+            <div className="journey-pair">
+              <label className="journey-field">
+                Account
+                <input
+                  value={draft.payrollWallet.name}
+                  maxLength={80}
+                  onChange={(e) =>
+                    setDraft({ ...draft, payrollWallet: { ...draft.payrollWallet!, name: e.target.value } })
+                  }
+                />
+              </label>
+              <label className="journey-field">
+                Balance · £
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  value={Number.isNaN(draft.payrollWallet.balance) ? "" : draft.payrollWallet.balance}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      payrollWallet: { ...draft.payrollWallet!, balance: e.target.valueAsNumber },
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <small>From Deel. Headroom checks this balance against the next pay run.</small>
+          </fieldset>
+        )}
+        <fieldset className="journey-field journey-group">
+          <legend>Customer payment terms</legend>
+          {draft.customerTerms.map((term, index) => (
+            <div className="journey-pair" key={index}>
+              <label className="journey-field">
+                Customer
+                <input
+                  value={term.customer}
+                  maxLength={80}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      customerTerms: draft.customerTerms.map((t, i) =>
+                        i === index ? { ...t, customer: e.target.value } : t,
+                      ),
+                    })
+                  }
+                />
+              </label>
+              <label className="journey-field">
+                Invoices due on day
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={28}
+                  value={Number.isNaN(term.dueDay) ? "" : term.dueDay}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      customerTerms: draft.customerTerms.map((t, i) =>
+                        i === index ? { ...t, dueDay: e.target.valueAsNumber } : t,
+                      ),
+                    })
+                  }
+                />
+              </label>
+            </div>
+          ))}
+          <small>Headroom compares each payment with these terms to spot customers who pay late.</small>
         </fieldset>
         <div className="journey-pair">
           <label className="journey-field">
