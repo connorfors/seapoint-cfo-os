@@ -107,6 +107,18 @@ export async function flagsFor(
   const names = new Map(
     categories.map((row) => category.parse(row)).map((c) => [c.id, c.leaf]),
   );
+  const provenance = z.object({
+    money: z.object({
+      total: z.object({ complete: z.boolean(), currency: z.string() }),
+    }),
+  });
+  for (const row of [...monthly, ...byCategory]) {
+    const money = provenance.parse(row).money.total;
+    if (!money.complete || money.currency !== currency)
+      throw new Error(
+        "Spending flags need complete totals in the organisation reporting currency.",
+      );
+  }
   const input: FlagInputs = {
     today,
     currency,
