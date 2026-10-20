@@ -1,0 +1,292 @@
+.fx-ticket {
+  margin: 22px 0 8px;
+  border: 1px solid var(--color-rule);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-surface);
+  font-size: 12px;
+}
+.fx-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-rule);
+  padding: 17px 19px;
+}
+.fx-bank-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  background: #db0011;
+  color: #fff;
+}
+.fx-provider strong {
+  font-size: 19px;
+  letter-spacing: 1px;
+  font-family: var(--font-display);
+}
+.fx-provider > div > span {
+  display: block;
+  color: var(--color-muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+.fx-simulation {
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 1px solid var(--color-control);
+  border-radius: 4px;
+  color: var(--color-muted);
+  font-size: 9px;
+}
+.fx-boundary {
+  font-size: 10px;
+  line-height: 1.7;
+  background: var(--color-paper);
+  padding: 12px 19px;
+  border-bottom: 1px solid var(--color-rule);
+}
+.fx-ticket form,
+.fx-quote,
+.fx-confirmation {
+  padding: 20px;
+}
+.fx-ticket label {
+  margin-bottom: 17px;
+  font-size: 11px;
+}
+.fx-ticket input,
+.fx-ticket select {
+  font-size: 12px;
+}
+.fx-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.fx-account-note {
+  font-size: 10px;
+  line-height: 1.75;
+  color: var(--color-muted);
+  margin: 12px 0 18px;
+}
+.fx-primary {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px 15px;
+  min-height: 45px;
+  border-radius: 5px;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+}
+.fx-primary:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+.fx-primary:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+.fx-quote-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.fx-quote-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--color-muted);
+}
+.fx-quote-heading > .fx-expired {
+  color: var(--color-negative);
+}
+.fx-exchange {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 0;
+  border-block: 1px solid var(--color-rule);
+}
+.fx-exchange > div {
+  flex: 1;
+}
+.fx-exchange > div:last-child {
+  text-align: right;
+}
+.fx-exchange span {
+  display: block;
+  font-size: 10px;
+  color: var(--color-muted);
+  margin-bottom: 7px;
+}
+.fx-exchange strong {
+  font-size: 23px;
+  letter-spacing: -0.7px;
+  font-family: var(--font-display);
+  font-variant-numeric: tabular-nums;
+}
+.fx-exchange > svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+.fx-facts {
+  font-size: 11px;
+  margin: 18px 0;
+}
+.fx-facts > div {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 14px;
+  padding: 8px 0;
+}
+.fx-facts dt {
+  color: var(--color-muted);
+}
+.fx-facts dd {
+  margin: 0;
+  text-align: right;
+}
+.fx-reference {
+  overflow-wrap: anywhere;
+  font-size: 9px !important;
+  color: var(--color-muted);
+}
+.fx-quote > .text-button {
+  margin-top: 15px;
+}
+.fx-confirmation > svg {
+  color: var(--color-accent);
+}
+.fx-confirmation h3 {
+  font-size: 22px;
+  margin: 12px 0;
+}
+.fx-confirmation > p {
+  margin-bottom: 10px;
+}
+.fx-completed {
+  padding: 0;
+  margin: 20px 0;
+  list-style: none;
+}
+.fx-completed li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 13px 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--color-muted);
+}
+.fx-completed li svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.fx-error {
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--color-negative);
+  padding: 0 20px 16px;
+}
+.fx-ticket form .fx-error {
+  padding: 0;
+  margin-bottom: 16px;
+}
+.fx-footnote {
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-rule);
+  padding: 12px 19px;
+  background: var(--color-paper);
+}
+.celebrate-steps {
+  text-align: left;
+  padding: 16px 18px;
+  list-style: none;
+  border: 1px solid var(--color-rule);
+  border-radius: 7px;
+  background: var(--color-paper);
+  margin: 20px 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.celebrate-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-ink);
+}
+.celebrate-steps svg {
+  color: var(--color-accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.celebrate-summary {
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 15px 0;
+  color: var(--color-muted);
+}
+@media (max-width: 600px) {
+  .fx-provider {
+    padding: 14px;
+  }
+  .fx-ticket form,
+  .fx-quote,
+  .fx-confirmation {
+    padding: 16px;
+  }
+  .fx-exchange {
+    gap: 8px;
+  }
+  .fx-exchange strong {
+    font-size: 20px;
+  }
+  .fx-exchange > svg {
+    width: 17px;
+  }
+  .fx-facts > div {
+    grid-template-columns: 80px 1fr;
+    gap: 10px;
+  }
+  .fx-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .fx-quote-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fx-primary {
+    font-size: 11px;
+    padding: 12px 8px;
+  }
+  .fx-boundary,
+  .fx-footnote {
+    padding: 12px 14px;
+  }
+  .celebrate-steps {
+    padding: 12px;
+  }
+  .celebrate-steps li {
+    font-size: 11px;
+  }
+}

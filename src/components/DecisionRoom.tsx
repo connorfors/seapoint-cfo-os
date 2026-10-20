@@ -1,3 +1,6 @@
+import type {Snapshot} from "../contracts";
+import {actionCompletionSchema,type ActionCompletion} from "../run-action";
+import {z} from "zod";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, X, Mail, PartyPopper } from "lucide-react";
 import { horizons, type Move } from "../signals";
@@ -17,9 +20,14 @@ function loadDone(): Set<string> {
   }
 }
 const keyOf = (move: Move) => `${move.id}:${move.headline}`;
+const completionsKey="headroom-completions-v1";
+function loadCompletions():Record<string,ActionCompletion> {
+  try{return z.record(z.string(),actionCompletionSchema).parse(JSON.parse(localStorage.getItem(completionsKey)??"{}"));}catch{return {};}
+}
 
 export function DecisionRoom({
   moves,
+  snapshot,
   company,
   loading,
   flagError,
@@ -30,6 +38,7 @@ export function DecisionRoom({
   onEvidence,
 }: {
   moves: Move[];
+  snapshot: Snapshot;
   company: string;
   loading: boolean;
   flagError: string;
@@ -48,9 +57,11 @@ export function DecisionRoom({
   const [alertNote, setAlertNote] = useState("");
   const [sending, setSending] = useState(false);
   const [receiptNote, setReceiptNote] = useState("");
+  const [completions,setCompletions]=useState(loadCompletions);
   const opened = useRef(false);
   const dialog = useRef<HTMLDivElement>(null);
   const move = moves.find((m) => m.id === active);
+  const completion=move ? completions[keyOf(move)] : undefined;
   const handled = moves.filter((m) => done.has(keyOf(m))).length;
   const next = moves.find((m) => m.id !== active && !done.has(keyOf(m)));
 
@@ -64,7 +75,7 @@ export function DecisionRoom({
       if (event.key === "Escape") return setActive(null);
       if (event.key !== "Tab") return;
       const items = dialog.current?.querySelectorAll<HTMLElement>(
-        "button:not(:disabled),input:not(:disabled),textarea,summary",
+        "button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea,summary",
       );
       const first = items?.[0];
       const last = items?.[items.length - 1];
@@ -90,16 +101,22 @@ export function DecisionRoom({
   useEffect(() => {
     if (opened.current || !openMove || !moves.some((m) => m.id === openMove)) return;
     opened.current = true;
+    const target=moves.find(m=>m.id===openMove);
     setActive(openMove);
-    setPhase("act");
+    setPhase(target && completions[keyOf(target)] ? "celebrate" : "act");
   }, [openMove, moves]);
 
   function open(id: string) {
     setActive(id);
-    setPhase("act");
+    const target=moves.find(m=>m.id===id);
+    setPhase(target && completions[keyOf(target)] ? "celebrate" : "act");
     setReceiptNote("");
   }
-  function complete(finished: Move, receipt: string) {
+  function complete(finished: Move, result:ActionCompletion) {
+    const receipt=result.receipt;
+    const updatedCompletions={...completions,[keyOf(finished)]:result};
+    setCompletions(updatedCompletions);
+    try{localStorage.setItem(completionsKey,JSON.stringify(updatedCompletions));}catch{/* Keep the receipt for this session. */}
     setReceiptNote("");
     onResolved(finished, receipt)
       .then((note) => setReceiptNote(note ?? ""))
@@ -115,7 +132,9 @@ export function DecisionRoom({
   }
   function reset() {
     setDone(new Set());
+    setCompletions({});
     localStorage.removeItem(doneKey);
+    localStorage.removeItem(completionsKey);
   }
   async function sendAlert() {
     setSending(true);
@@ -298,7 +317,7 @@ export function DecisionRoom({
                     ))}
                   </ul>
                 )}
-                <RunAction move={move} onDone={(receipt) => complete(move, receipt)} />
+                <RunAction move={move} snapshot={snapshot} onDone={(result) => complete(move, result)} />
                 <p className="dialog-source">Source: {move.source}</p>
               </>
             ) : (
@@ -315,6 +334,7 @@ export function DecisionRoom({
                 <p className="celebrate-line">
                   {move.title} is handled. {handled === moves.length ? "That was the last one." : `That is ${handled} of ${moves.length}.`}
                 </p>
+                {completion && <><p className="celebrate-summary">{completion.receipt}</p><ol className="celebrate-steps" aria-label="Completed steps">{completion.steps.map((step,index)=><li key={`${index}-${step}`}><Check size={15}/><span>{step}</span></li>)}</ol></>}
                 <span className="celebrate-impact">
                   <Check size={14} /> {move.impact}
                 </span>
