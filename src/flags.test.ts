@@ -229,3 +229,13 @@ test("a bill that appears twice is paid once and named as a duplicate", () => {
   assert.equal(flag.decision, "Pay 1 overdue bills, £21,800.00, from Northstar Modulr GBP, and hold back 1 duplicate.");
   assert.ok(flag.detail.some((line) => line.startsWith("Held back as a duplicate: Snowflake SNF-10")));
 });
+
+test("an external FX forecast turns exposure into an expected loss", () => {
+  const flag = currencyExposure(
+    input({ market: { currency: "EUR", change30dPct: -1.8, forecast3mPct: -2.5, source: "markets feed consensus" } }),
+  )!;
+  assert.match(flag.headline, /^£3,3\d\d expected loss$/);
+  assert.match(flag.metric, /EUR forecast to fall 2.5%/);
+  assert.match(flag.detail[0], /EUR is down 1.8% against GBP in 30 days/);
+  assert.match(flag.decision, /^Lock a 3-month forward on €159,400\.00 at today's 0\.8425/);
+});

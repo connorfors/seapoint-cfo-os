@@ -87,12 +87,19 @@ export const payrollWalletSchema = z.object({
   name: z.string().min(1).max(80),
   balance: z.number().min(0).max(100_000_000),
 });
+export const marketOutlookSchema = z.object({
+  currency: z.enum(currencies),
+  change30dPct: z.number().min(-50).max(50),
+  forecast3mPct: z.number().min(-50).max(50),
+  source: z.string().max(80),
+});
 /** The part of the business context the flags engine reads. */
 export const flagContextSchema = z.object({
   bufferMonths: z.number().min(0).max(24).default(3),
   newJoiner: newJoinerSchema.nullable().default(null),
   customerTerms: z.array(customerTermSchema).max(10).default([]),
   payrollWallet: payrollWalletSchema.nullable().default(null),
+  marketOutlook: marketOutlookSchema.nullable().default(null),
 });
 export type FlagContext = z.infer<typeof flagContextSchema>;
 
@@ -117,6 +124,7 @@ export const contextSchema = z.object({
   newJoiner: newJoinerSchema.nullable().default(null),
   customerTerms: z.array(customerTermSchema).max(10).default([]),
   payrollWallet: payrollWalletSchema.nullable().default(null),
+  marketOutlook: marketOutlookSchema.nullable().default(null),
   employerOverhead: z.number().min(0).max(1),
 });
 export type BusinessContext = z.infer<typeof contextSchema>;
@@ -126,6 +134,7 @@ export function flagContextOf(context: BusinessContext): FlagContext {
     newJoiner: context.newJoiner,
     customerTerms: context.customerTerms,
     payrollWallet: context.payrollWallet,
+    marketOutlook: context.marketOutlook,
   };
 }
 
@@ -164,6 +173,12 @@ export const demoContext: BusinessContext = {
     currency: "GBP",
   },
   payrollWallet: { name: "Deel payroll wallet", balance: 412 },
+  marketOutlook: {
+    currency: "EUR",
+    change30dPct: -1.8,
+    forecast3mPct: -2.5,
+    source: "markets feed consensus",
+  },
   customerTerms: [{ customer: "Cormorant Systems", dueDay: 8 }],
   employerOverhead: 0.2,
 };

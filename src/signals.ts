@@ -45,7 +45,9 @@ export function whyForYou(id: string, context: BusinessContext) {
     case "idle-cash":
       return `You keep a ${context.bufferMonths}-month cash buffer and assume no new funding, so idle cash should earn while it waits.`;
     case "currency-exposure":
-      return `You sell to ${lower(context.customers.split(".")[0] ?? "customers abroad")}, so foreign cash is a real exposure, not a rounding error.`;
+      return context.marketOutlook
+        ? `Your EUR cash is internal context. The ${context.marketOutlook.source} is external context. Together they say the euro you hold is likely to buy less in 3 months.`
+        : `You sell to ${lower(context.customers.split(".")[0] ?? "customers abroad")}, so foreign cash is a real exposure, not a rounding error.`;
     case "spending-trend":
       return `Your runway floor is ${context.minimumRunway} months. A rise that becomes the new normal moves that date closer.`;
     case "odd-spend":

@@ -79,6 +79,13 @@ export type FlagInputs = {
     people?: number;
     annualSalaries?: number;
   }[];
+  /** External market outlook for a currency against the reporting currency. */
+  market?: {
+    currency: string;
+    change30dPct: number;
+    forecast3mPct: number;
+    source: string;
+  } | null;
   /** The account payroll is paid from, when it sits outside Seapoint (e.g. a Deel wallet). */
   payrollWallet?: { name: string; balance: number } | null;
 };
@@ -393,6 +400,27 @@ export function currencyExposure(input: FlagInputs): Finding | null {
     const excess = spare * account.rate;
     if (excess < 25_000 || excess <= worstExcess) continue;
     worstExcess = excess;
+    const market = input.market?.currency === account.currency ? input.market : null;
+    if (market && market.forecast3mPct < 0) {
+      const loss = excess * (-market.forecast3mPct / 100);
+      worst = {
+        id: "currency-exposure",
+        rag: loss >= 5_000 ? "red" : "amber",
+        title: "Potential FX loss",
+        headline: `${money(Math.round(loss), input.currency).replace(/\.00$/, "")} expected loss`,
+        metric: `${account.currency} forecast to fall ${Math.abs(market.forecast3mPct)}% · ${money(spare, account.currency, true)} unhedged`,
+        detail: [
+          `Markets: ${account.currency} is ${market.change30dPct < 0 ? "down" : "up"} ${Math.abs(market.change30dPct)}% against ${input.currency} in 30 days.`,
+          `Outlook: a further ${Math.abs(market.forecast3mPct)}% fall over the next 3 months (${market.source}).`,
+          `${account.name} holds ${money(account.balance, account.currency)}. ${account.currency} bills due in 90 days need ${money(needed, account.currency)}, so ${money(spare, account.currency)} is exposed.`,
+          `At the forecast, that loses about ${money(loss, input.currency)}. A forward at today's ${account.rate.toFixed(4)} removes it.`,
+        ],
+        decision: `Lock a 3-month forward on ${money(spare, account.currency)} at today's ${account.rate.toFixed(4)}, worth ${money(excess, input.currency)}.`,
+        action: { kind: "convert_currency", label: "Lock in rate" },
+        source: `Seapoint balances and unpaid invoices, with the ${market.source}`,
+      };
+      continue;
+    }
     worst = {
       id: "currency-exposure",
       rag: "amber",

@@ -18,6 +18,11 @@ type Subscription = {
   sent: Set<string>;
 };
 const subscriptions = new Map<string, Subscription>();
+/** The last emails sent, so the demo can show exactly what arrived. */
+export const lastSent: Record<"alert" | "resolved", { to: string; subject: string; html: string; at: string } | null> = {
+  alert: null,
+  resolved: null,
+};
 let lastSend = 0;
 
 export function alertRecipientError(to: string) {
@@ -64,6 +69,11 @@ function html(company: string, flags: Flag[]) {
 }
 
 async function send(sub: Subscription, flags: Flag[]) {
+  const subject =
+    flags.length === 1
+      ? `🔴 ${flags[0]!.title}: ${flags[0]!.headline}`
+      : `🔴 ${flags.length} things need you today: ${flags.map((f) => f.title).join(", ")}`;
+  const body = html(sub.company, flags);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -73,16 +83,14 @@ async function send(sub: Subscription, flags: Flag[]) {
     body: JSON.stringify({
       from,
       to: [sub.to],
-      subject:
-        flags.length === 1
-          ? `🔴 ${flags[0]!.title}: ${flags[0]!.headline}`
-          : `🔴 ${flags.length} things need you today: ${flags.map((f) => f.title).join(", ")}`,
-      html: html(sub.company, flags),
+      subject,
+      html: body,
     }),
   });
   if (!response.ok)
     throw new Error(`The alert email failed: Resend answered ${response.status}.`);
   lastSend = Date.now();
+  lastSent.alert = { to: sub.to, subject, html: body, at: new Date().toISOString() };
   for (const f of flags) sub.sent.add(`${f.id}:${f.headline}`);
   process.stdout.write(`[alerts] sent ${flags.length} red flags to ${sub.to}\n`);
 }
@@ -151,6 +159,7 @@ export async function sendResolved(details: {
     <tr><td><a href="${appUrl}" style="display:inline-block;background:#24563c;color:#ffffff;font:600 15px/1 Arial,sans-serif;padding:14px 22px;border-radius:8px;text-decoration:none">See what is left</a></td></tr>
     <tr><td style="font:400 12px/1.5 Arial,sans-serif;color:#8a968d;padding-top:22px">Demo mode. No real money moved.</td></tr>
   </table></td></tr></table></body></html>`;
+  const subject = `✅ Resolved: ${details.title} · ${details.receipt.split(" · ref")[0]}`;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -160,13 +169,33 @@ export async function sendResolved(details: {
     body: JSON.stringify({
       from,
       to: [details.to],
-      subject: `✅ Resolved: ${details.title} · ${details.receipt.split(" · ref")[0]}`,
+      subject,
       html: body,
     }),
   });
   if (!response.ok)
     throw new Error(`The receipt email failed: Resend answered ${response.status}.`);
   lastResolved = Date.now();
+  lastSent.resolved = { to: details.to, subject, html: body, at: new Date().toISOString() };
   process.stdout.write(`[alerts] sent resolution for ${details.title} to ${details.to}\n`);
   return true;
+}
+
+/** The last email of a kind, framed like a mail client, for the demo. */
+export function lastEmailPage(kind: "alert" | "resolved") {
+  const mail = lastSent[kind];
+  if (!mail) return null;
+  const when = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(mail.at));
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escape(mail.subject)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;background:#eef1ec;font-family:Arial,sans-serif">
+<div style="max-width:760px;margin:0 auto;padding:24px 16px">
+  <div style="background:#fff;border-radius:14px 14px 0 0;padding:18px 22px;border-bottom:1px solid #e3e8e1">
+    <div style="font-size:20px;font-weight:700;color:#1d2a22;margin-bottom:10px">${escape(mail.subject)}</div>
+    <div style="display:flex;justify-content:space-between;font-size:13px;color:#5b6b60">
+      <span><b style="color:#1d2a22">Headroom</b> &lt;notification@mycloop.com&gt; to ${escape(mail.to)}</span><span>${when}</span>
+    </div>
+  </div>
+  <div style="background:#f5f7f2;border-radius:0 0 14px 14px;overflow:hidden">${mail.html.replace(/^[\s\S]*?<body[^>]*>/, "").replace(/<\/body>[\s\S]*$/, "")}</div>
+</div></body></html>`;
 }

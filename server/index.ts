@@ -2,7 +2,7 @@ import { createServer, type ServerResponse } from "node:http";
 import { connectSeapoint, type SeapointConnection } from "./mcp";
 import { financialSnapshot, organisations } from "./finance";
 import { flagsFor } from "./flags";
-import { alertRecipientError, sendResolved, subscribe, watchAlerts } from "./alerts";
+import { alertRecipientError, lastEmailPage, sendResolved, subscribe, watchAlerts } from "./alerts";
 import { flagContextSchema, snapshotSchema, type FlagContext, type Snapshot } from "../src/contracts";
 
 let connection: Promise<SeapointConnection> | undefined;
@@ -131,6 +131,15 @@ const server = createServer(async (request, response) => {
           body.force === true,
         ),
       );
+      return;
+    }
+    if (url.pathname === "/api/alerts/last") {
+      const page = lastEmailPage(url.searchParams.get("kind") === "resolved" ? "resolved" : "alert");
+      response.writeHead(page ? 200 : 404, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      response.end(page ?? "<p>No email has been sent yet.</p>");
       return;
     }
     if (url.pathname === "/api/health") {

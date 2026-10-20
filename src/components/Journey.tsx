@@ -97,11 +97,11 @@ function storedEmail() {
 
 /** Step 1 starts empty so the import from Notion and Slack can fill it in. */
 function blankForImport(context: BusinessContext): BusinessContext {
-  return { ...context, company: "", goal: "", newJoiner: null, customerTerms: [], payrollWallet: null };
+  return { ...context, company: "", goal: "", newJoiner: null, customerTerms: [], payrollWallet: null, marketOutlook: null };
 }
 
 type Source = {
-  app: "notion" | "slack" | "deel";
+  app: "notion" | "slack" | "deel" | "markets";
   place: string;
   found: string;
   fill: (context: BusinessContext) => BusinessContext;
@@ -131,6 +131,12 @@ const sources: Source[] = [
     place: "Payroll wallet",
     found: "Pays the UK team · balance £412",
     fill: (c) => ({ ...c, payrollWallet: demoContext.payrollWallet }),
+  },
+  {
+    app: "markets",
+    place: "FX outlook · EUR/GBP",
+    found: "EUR down 1.8% in 30 days · consensus sees a further 2.5% fall",
+    fill: (c) => ({ ...c, marketOutlook: demoContext.marketOutlook }),
   },
   {
     app: "notion",
@@ -167,12 +173,13 @@ function ImportPanel({
       <div className="journey-import-head">
         <div>
           <strong>Pull it from your tools</strong>
-          <span>Headroom reads your wiki, hiring plan, finance channel and payroll.</span>
+          <span>Headroom reads your wiki, hiring plan, finance channel, payroll and the FX markets.</span>
         </div>
         <div className="journey-import-apps" aria-hidden="true">
           <i className="app-notion">N</i>
           <i className="app-slack">#</i>
           <i className="app-deel">d</i>
+          <i className="app-markets">↗</i>
         </div>
       </div>
       {done < 0 && !running ? (
@@ -184,11 +191,11 @@ function ImportPanel({
           {sources.map((source, index) => (
             <li key={source.place} className={index <= done ? "found" : index === done + 1 ? "reading" : ""}>
               <i className={`app-${source.app}`} aria-hidden="true">
-                {source.app === "notion" ? "N" : source.app === "slack" ? "#" : "d"}
+                {source.app === "notion" ? "N" : source.app === "slack" ? "#" : source.app === "deel" ? "d" : "↗"}
               </i>
               <span>
                 <b>
-                  {source.app === "notion" ? "Notion" : source.app === "slack" ? "Slack" : "Deel"} · {source.place}
+                  {source.app === "notion" ? "Notion" : source.app === "slack" ? "Slack" : source.app === "deel" ? "Deel" : "Markets"} · {source.place}
                 </b>
                 <small>{index <= done ? source.found : index === done + 1 ? "Reading…" : "Waiting"}</small>
               </span>

@@ -70,7 +70,7 @@ async function rows(connection: SeapointConnection, tool: string, args: object) 
 export async function flagsFor(
   connection: SeapointConnection,
   organisationId: string,
-  context: FlagContext = { bufferMonths: 3, newJoiner: null, customerTerms: [], payrollWallet: null },
+  context: FlagContext = { bufferMonths: 3, newJoiner: null, customerTerms: [], payrollWallet: null, marketOutlook: null },
   now = new Date(),
 ) {
   const today = now.toISOString().slice(0, 10);
@@ -155,6 +155,7 @@ export async function flagsFor(
     joiner,
     joinerRate,
     payrollWallet: context.payrollWallet,
+    market: context.marketOutlook,
     accounts: parsedAccounts.map((a) => ({
       id: a.id,
       name: a.name,
