@@ -29,6 +29,8 @@ export type Flag = {
 export type FlagInputs = {
   today: string;
   currency: string;
+  /** Months of spending the business keeps in current accounts. */
+  bufferMonths?: number;
   accounts: {
     id: string;
     name: string;
@@ -251,7 +253,8 @@ export function idleCash(input: FlagInputs): Finding | null {
   const banking = input.accounts
     .filter((a) => a.type === "BANKING")
     .reduce((sum, a) => sum + (a.reporting ?? 0), 0);
-  const buffer = spend * 3;
+  const months = input.bufferMonths ?? 3;
+  const buffer = spend * months;
   const excess = Math.min(banking - buffer, from.balance - spend);
   const amount = Math.floor(excess / 10_000) * 10_000;
   if (amount < 10_000) return null;
@@ -263,7 +266,7 @@ export function idleCash(input: FlagInputs): Finding | null {
     headline: `${money(yearly, input.currency, true)} a year missed`,
     metric: `${money(amount, input.currency, true)} earning 0%`,
     detail: [
-      `Current accounts hold ${money(banking, input.currency)}. Three months of spending is ${money(buffer, input.currency)}.`,
+      `Current accounts hold ${money(banking, input.currency)}. Your ${months}-month buffer is ${money(buffer, input.currency)}.`,
       `${treasury.name} pays ${treasury.netYieldPct}% after fees.`,
       "The yield is a recent estimate, not a promise.",
     ],

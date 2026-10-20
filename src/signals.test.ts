@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { burnRating, buildSignals } from "./signals";
+import { buildMoves, whyForYou } from "./signals";
+import type { LiveFlag } from "./contracts";
 import { demoContext, snapshotSchema } from "./contracts";
 const snapshot = snapshotSchema.parse({
   source: "seapoint",
@@ -44,53 +45,40 @@ const snapshot = snapshotSchema.parse({
   payroll: null,
   warnings: [],
 });
-test("burn ratings distinguish thresholds, missing evidence and a move from inflow to burn", () => {
-  assert.equal(burnRating(110000, 100000, true), "green");
-  assert.equal(burnRating(120000, 100000, true), "amber");
-  assert.equal(burnRating(121000, 100000, true), "red");
-  assert.equal(burnRating(5000, -100, true), "red");
-  assert.equal(burnRating(0, null, true), "amber");
-  assert.equal(burnRating(1000, 1000, false), "amber");
-});
-test("the room has exactly six signals, sorts urgency and identifies invented financial stories", () => {
-  const signals = buildSignals(snapshot, demoContext, "growth", "2026-10-23");
-  assert.equal(signals.length, 6);
-  assert.deepEqual(
-    signals.map((s) => s.rating),
-    ["red", "red", "amber", "amber", "green", "green"],
-  );
-  for (const id of ["payroll", "collections", "fx", "unusual"])
-    assert.equal(signals.find((s) => s.id === id)?.source, "Demo");
-  assert.equal(signals.find((s) => s.id === "burn")?.source, "Seapoint");
-  assert.equal(signals.find((s) => s.id === "runway")?.source, "Model");
-});
-test("missing trend evidence cannot produce a green burn flag", () => {
-  const burn = buildSignals(
-    { ...snapshot, comparison: null },
+
+function flag(id: string, rag: LiveFlag["rag"]): LiveFlag {
+  const horizon = rag === "red" ? "today" : rag === "amber" ? "week" : "month";
+  return {
+    id,
+    rag,
+    horizon,
+    title: id,
+    headline: `${id} headline`,
+    metric: "metric",
+    detail: [],
+    decision: "decide",
+    action: { kind: "review_spend", label: "Review" },
+    source: "Seapoint",
+  };
+}
+
+test("moves keep live flags, add runway, and sort red first", () => {
+  const moves = buildMoves(
+    [flag("idle-cash", "amber"), flag("overdue-bills", "red")],
+    snapshot,
     demoContext,
-    "growth",
-    "2026-10-23",
-  ).find((s) => s.id === "burn");
-  assert.equal(burn?.rating, "amber");
-  assert.equal(burn?.metricLabel, "comparison unavailable");
+    "lean",
+  );
+  assert.deepEqual(
+    moves.map((m) => `${m.rag}:${m.horizon}:${m.id}`),
+    ["red:today:overdue-bills", "amber:week:idle-cash", "green:month:runway"],
+  );
+  assert.equal(moves.at(-1)!.title, "Runway");
 });
 
-test("the observed unusual-spend flag replaces its fixture without changing the six-tile contract", () => {
-  const flags = buildSignals(snapshot, demoContext, "growth", "2026-10-23", [
-    {
-      id: "odd-spend",
-      rag: "amber",
-      headline: "Software 2.5× usual",
-      metric: "£10k in September",
-      detail: ["Test historical category comparison"],
-      source: "Seapoint test evidence",
-    },
-  ]);
-  const unusual = flags.find((flag) => flag.id === "unusual");
-  assert.equal(flags.length, 6);
-  assert.equal(unusual?.source, "Seapoint");
-  assert.equal(unusual?.metric, "2.5×");
-  assert.equal(unusual?.metricLabel, "£10k in September");
-  assert.ok(unusual?.evidence.includes("Test historical category comparison"));
-  assert.ok(!unusual?.actions[0]?.preparation.includes("£1,800"));
+test("every move names the business context it depends on", () => {
+  const context = { ...demoContext, bufferMonths: 6, minimumRunway: 18 };
+  assert.match(whyForYou("idle-cash", context), /6-month cash buffer/);
+  assert.match(whyForYou("spending-trend", context), /18 months/);
+  assert.match(whyForYou("late-customer", context), /win 10 new retail customers/);
 });

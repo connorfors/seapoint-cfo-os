@@ -64,6 +64,7 @@ async function rows(connection: SeapointConnection, tool: string, args: object) 
 export async function flagsFor(
   connection: SeapointConnection,
   organisationId: string,
+  bufferMonths = 3,
   now = new Date(),
 ) {
   const today = now.toISOString().slice(0, 10);
@@ -133,6 +134,7 @@ export async function flagsFor(
   const input: FlagInputs = {
     today,
     currency,
+    bufferMonths,
     accounts: parsedAccounts.map((a) => ({
       id: a.id,
       name: a.name,

@@ -87,6 +87,7 @@ export const contextSchema = z.object({
   bets: z.string().min(1).max(600),
   budget: z.number().min(0).max(100_000_000),
   minimumRunway: z.number().min(1).max(60),
+  bufferMonths: z.number().min(0).max(24).default(3),
   employerOverhead: z.number().min(0).max(1),
 });
 export type BusinessContext = z.infer<typeof contextSchema>;
@@ -117,6 +118,7 @@ export const demoContext: BusinessContext = {
   bets: "Run a 90-day GTM experiment. Test enterprise invoice automation before hiring another operations role. Gate a US expansion on paid demand.",
   budget: 700_000,
   minimumRunway: 12,
+  bufferMonths: 3,
   employerOverhead: 0.2,
 };
 
@@ -127,9 +129,17 @@ export const liveFlagsSchema = z.object({
     z.object({
       id: z.string(),
       rag: z.enum(["red", "amber", "green"]),
+      horizon: z.enum(["today", "week", "month"]),
+      title: z.string(),
       headline: z.string(),
       metric: z.string(),
       detail: z.array(z.string()),
+      decision: z.string(),
+      action: z.object({
+        kind: z.string(),
+        label: z.string(),
+        email: z.object({ subject: z.string(), body: z.string() }).optional(),
+      }),
       source: z.string(),
     }),
   ),
