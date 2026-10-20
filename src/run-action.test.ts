@@ -92,14 +92,14 @@ test("currency conversion locks a rate", () => {
     }),
     "HR-3000",
   );
-  assert.equal(plan.button, "Lock in rate now");
+  assert.equal(plan.button, "Open HSBC demo ticket");
   assert.deepEqual(plan.steps, [
-    "Fetching a live quote",
-    "Comparing spot and forward",
-    "Locking the rate",
-    "Rate locked",
+    "Verified source and settlement accounts through Seapoint",
+    "Reviewed an illustrative HSBC quote",
+    "Accepted the demo quote",
+    "Issued a simulated deal receipt",
   ]);
-  assert.equal(plan.receipt, "Rate locked on €120,000 · ref HR-3000");
+  assert.equal(plan.receipt, "HSBC demo rate lock on €120,000 · ref HR-3000. No real trade booked.");
 });
 
 test("customer chase sends a reminder to the payer", () => {

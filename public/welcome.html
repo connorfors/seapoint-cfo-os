@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Headroom: what needs you today</title>
+    <link rel="stylesheet" href="/node_modules/@fontsource-variable/manrope/index.css" />
+    <link rel="stylesheet" href="/node_modules/@fontsource-variable/geist/index.css" />
+    <style>
+      :root {
+        --paper: oklch(97.2% 0.006 120);
+        --surface: oklch(99.4% 0.003 120);
+        --ink: oklch(25% 0.017 150);
+        --muted: oklch(48% 0.012 145);
+        --rule: oklch(89.5% 0.009 140);
+        --accent: oklch(39% 0.085 155);
+        --accent-soft: oklch(94.5% 0.022 150);
+        --red: oklch(58% 0.19 28);
+        --red-soft: oklch(96.5% 0.025 28);
+        --amber: oklch(74% 0.15 70);
+        --amber-soft: oklch(97% 0.035 85);
+        --display: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+        --body: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: var(--body);
+        -webkit-font-smoothing: antialiased;
+      }
+      .page {
+        min-height: 100dvh;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 28px 40px 24px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 22px;
+        letter-spacing: -0.4px;
+      }
+      .mark {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        background: var(--accent);
+        display: grid;
+        place-items: center;
+        color: var(--surface);
+        font-size: 18px;
+      }
+      .on-seapoint {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1.05fr 0.95fr;
+        gap: 56px;
+        align-items: center;
+        padding: 24px 0;
+      }
+      h1 {
+        font-family: var(--display);
+        font-size: 60px;
+        line-height: 1.02;
+        letter-spacing: -2.4px;
+        margin: 0 0 20px;
+      }
+      h1 em {
+        font-style: normal;
+        color: var(--accent);
+      }
+      .lede {
+        font-size: 19px;
+        line-height: 1.5;
+        color: var(--muted);
+        margin: 0 0 30px;
+        max-width: 560px;
+      }
+      .steps {
+        list-style: none;
+        margin: 0 0 34px;
+        padding: 0;
+        display: grid;
+        gap: 14px;
+      }
+      .steps li {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 14px;
+        align-items: start;
+      }
+      .steps b {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-family: var(--display);
+      }
+      .steps strong {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 2px;
+      }
+      .steps span {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 26px;
+        border-radius: 12px;
+        background: var(--accent);
+        color: var(--surface);
+        font-size: 17px;
+        font-weight: 600;
+        text-decoration: none;
+        box-shadow: 0 2px 0 oklch(30% 0.08 155);
+        transition:
+          transform 120ms cubic-bezier(0.16, 1, 0.3, 1),
+          box-shadow 120ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      .cta:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 22px oklch(39% 0.085 155 / 0.3);
+      }
+      .cta:focus-visible {
+        outline: 3px solid oklch(77% 0.053 150);
+        outline-offset: 3px;
+      }
+      .note {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .board {
+        background: var(--surface);
+        border: 1px solid var(--rule);
+        border-radius: 20px;
+        padding: 26px;
+        box-shadow: 0 30px 80px oklch(25% 0.017 150 / 0.1);
+      }
+      .board h2 {
+        font-family: var(--display);
+        font-size: 22px;
+        letter-spacing: -0.5px;
+        margin: 0 0 4px;
+      }
+      .board p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--display);
+        font-weight: 700;
+        font-size: 14px;
+        margin: 16px 0 10px;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .tile {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 4px 12px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid var(--rule);
+        margin-bottom: 10px;
+        animation: rise 600ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      .tile:nth-of-type(2) {
+        animation-delay: 120ms;
+      }
+      .tile:nth-of-type(3) {
+        animation-delay: 240ms;
+      }
+      .tile small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .tile strong {
+        font-family: var(--display);
+        font-size: 19px;
+        letter-spacing: -0.4px;
+      }
+      .tile i {
+        grid-row: 1 / span 3;
+        grid-column: 2;
+        align-self: center;
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+      }
+      .red {
+        border-top: 3px solid var(--red);
+      }
+      .red i,
+      .dot.red {
+        background: var(--red);
+        box-shadow: 0 0 0 5px var(--red-soft);
+      }
+      .amber {
+        border-top: 3px solid var(--amber);
+      }
+      .amber i,
+      .dot.amber {
+        background: var(--amber);
+        box-shadow: 0 0 0 5px var(--amber-soft);
+      }
+      .dot.red,
+      .dot.amber {
+        box-shadow: none;
+      }
+      .mail {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: var(--accent-soft);
+        font-size: 13px;
+      }
+      footer {
+        display: flex;
+        justify-content: space-between;
+        font-size: 12px;
+        color: var(--muted);
+        border-top: 1px solid var(--rule);
+        padding-top: 16px;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+      }
+      @media (max-width: 900px) {
+        .page {
+          padding: 20px;
+        }
+        main {
+          grid-template-columns: 1fr;
+          gap: 32px;
+        }
+        h1 {
+          font-size: 42px;
+          letter-spacing: -1.4px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tile {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <div class="brand"><span class="mark" aria-hidden="true">↟</span>headroom</div>
+        <div class="on-seapoint">Built on Seapoint</div>
+      </header>
+      <main>
+        <section>
+          <h1>Know what needs you <em>today</em>.</h1>
+          <p class="lede">
+            Headroom watches your bank, your business and the markets. It flags what will cost you money, tells
+            you why it matters, and does the fix in one click.
+          </p>
+          <ol class="steps">
+            <li>
+              <b>1</b>
+              <div>
+                <strong>It reads everything</strong>
+                <span>Live Seapoint accounts, bills and payroll, plus Notion, Slack, Deel and FX markets.</span>
+              </div>
+            </li>
+            <li>
+              <b>2</b>
+              <div>
+                <strong>It flags what matters</strong>
+                <span>Red today, amber this week, green this month: payroll, late customers, FX risk, idle cash.</span>
+              </div>
+            </li>
+            <li>
+              <b>3</b>
+              <div>
+                <strong>It acts with you</strong>
+                <span>One button resolves each flag. An email reaches you the moment something turns red.</span>
+              </div>
+            </li>
+          </ol>
+          <a class="cta" href="/">See your next moves <span aria-hidden="true">→</span></a>
+          <p class="note">Live on Seapoint staging data. Demo mode: no real money moves.</p>
+        </section>
+        <section class="board" aria-label="Example of Headroom's next moves">
+          <h2>Your next moves, in order.</h2>
+          <p>Northstar Labs · today</p>
+          <div class="row"><span class="dot red"></span>Today</div>
+          <div class="tile red">
+            <small>Payroll underfunded</small><strong>£17k short</strong><small>New joiner Maya Chen · payday 25 Oct</small><i></i>
+          </div>
+          <div class="tile red">
+            <small>Customers paying late</small><strong>Cormorant pays 10 days late</strong><small>Every payment since Oct 2025</small><i></i>
+          </div>
+          <div class="row"><span class="dot amber"></span>This week</div>
+          <div class="tile amber">
+            <small>Potential FX loss</small><strong>£3,319 expected loss</strong><small>EUR forecast to fall 2.5%</small><i></i>
+          </div>
+          <div class="mail"><span aria-hidden="true">✉</span> 🔴 3 things need you today: Payroll underfunded, …</div>
+        </section>
+      </main>
+      <footer><span>Headroom · Seapoint hackathon</span><span>headroom.cb-63a.workers.dev</span></footer>
+    </div>
+  </body>
+</html>

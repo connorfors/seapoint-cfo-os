@@ -1,3 +1,4 @@
+import {fxIntentSchema} from "./fx-contracts";
 import { z } from "zod";
 
 export const organisationSchema = z.object({
@@ -199,6 +200,7 @@ export const liveFlagsSchema = z.object({
       action: z.object({
         kind: z.string(),
         label: z.string(),
+        fx: fxIntentSchema.optional(),
         email: z.object({ subject: z.string(), body: z.string() }).optional(),
       }),
       source: z.string(),
