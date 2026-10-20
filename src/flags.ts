@@ -5,7 +5,9 @@ export type ActionKind =
   | "chase_customer"
   | "move_to_treasury"
   | "convert_currency"
-  | "review_spend";
+  | "review_spend"
+  | "fund_payroll"
+  | "pay_payroll";
 
 export type Flag = {
   id: string;
@@ -52,11 +54,24 @@ export type FlagInputs = {
     count: number;
   }[];
   credits: { payer: string; date: string; amount: number }[];
+  payroll: {
+    name: string;
+    status: string;
+    payDate: string | null;
+    net: number;
+    currency: string;
+  }[];
 };
 
 const day = 86_400_000;
 const rank: Record<Rag, number> = { red: 0, amber: 1, green: 2 };
-const soon: Record<Horizon, number> = { today: 0, week: 1, month: 2 };
+/** One scale, not two: red is today, amber this week, green this month. */
+export const horizonOf: Record<Rag, Horizon> = {
+  red: "today",
+  amber: "week",
+  green: "month",
+};
+type Finding = Omit<Flag, "horizon">;
 
 function days(from: string, to: string) {
   return Math.round(
@@ -115,7 +130,7 @@ function averageSpend(input: FlagInputs) {
     : 0;
 }
 
-export function overdueBills(input: FlagInputs): Flag | null {
+export function overdueBills(input: FlagInputs): Finding | null {
   const dated = input.unpaidBills.filter((bill) => bill.due);
   const overdue = dated.filter((bill) => bill.due! < input.today);
   const dueSoon = dated.filter(
@@ -137,7 +152,6 @@ export function overdueBills(input: FlagInputs): Flag | null {
   return {
     id: "overdue-bills",
     rag: overdue.length ? "red" : "amber",
-    horizon: "today",
     title: "Supplier bills",
     headline: overdue.length
       ? `${money(total, input.currency, true)} overdue`
@@ -160,14 +174,14 @@ export function overdueBills(input: FlagInputs): Flag | null {
   };
 }
 
-export function lateCustomer(input: FlagInputs): Flag | null {
+export function lateCustomer(input: FlagInputs): Finding | null {
   const byPayer = new Map<string, { date: string; amount: number }[]>();
   for (const credit of input.credits) {
     const list = byPayer.get(credit.payer) ?? [];
     list.push(credit);
     byPayer.set(credit.payer, list);
   }
-  let worst: (Flag & { score: number }) | null = null;
+  let worst: (Finding & { score: number }) | null = null;
   for (const [payer, payments] of byPayer) {
     if (payments.length < 3) continue;
     payments.sort((a, b) => a.date.localeCompare(b.date));
@@ -188,8 +202,7 @@ export function lateCustomer(input: FlagInputs): Flag | null {
       score,
       id: "late-customer",
       rag,
-      horizon: "week",
-      title: "Customer payments",
+      title: "Customers paying late",
       headline: late >= 2 ? `${payer} ${late} days late` : `${payer} paying less`,
       metric: shrinking
         ? `Down ${money(drop, input.currency, true)} over 3 payments`
@@ -228,7 +241,7 @@ export function lateCustomer(input: FlagInputs): Flag | null {
   return flag;
 }
 
-export function idleCash(input: FlagInputs): Flag | null {
+export function idleCash(input: FlagInputs): Finding | null {
   const treasury = input.accounts.find(
     (a) => a.type === "INVESTMENT" && a.netYieldPct !== null,
   );
@@ -246,7 +259,6 @@ export function idleCash(input: FlagInputs): Flag | null {
   return {
     id: "idle-cash",
     rag: yearly >= 5_000 ? "amber" : "green",
-    horizon: "month",
     title: "Idle cash",
     headline: `${money(yearly, input.currency, true)} a year missed`,
     metric: `${money(amount, input.currency, true)} earning 0%`,
@@ -261,9 +273,9 @@ export function idleCash(input: FlagInputs): Flag | null {
   };
 }
 
-export function currencyExposure(input: FlagInputs): Flag | null {
+export function currencyExposure(input: FlagInputs): Finding | null {
   const horizon = addDays(input.today, 90);
-  let worst: Flag | null = null;
+  let worst: Finding | null = null;
   let worstExcess = 0;
   for (const account of input.accounts) {
     if (account.type !== "BANKING" || account.currency === input.currency)
@@ -279,10 +291,9 @@ export function currencyExposure(input: FlagInputs): Flag | null {
     worst = {
       id: "currency-exposure",
       rag: "amber",
-      horizon: "month",
-      title: "Currency",
-      headline: `${money(spare, account.currency, true)} unhedged`,
-      metric: `≈ ${money(excess, input.currency, true)} at ${account.rate.toFixed(4)}`,
+      title: "Potential FX loss",
+      headline: `${money(excess * 0.05, input.currency, true)} at risk`,
+      metric: `if ${account.currency} falls 5% · ${money(spare, account.currency, true)} unhedged`,
       detail: [
         `${account.name} holds ${money(account.balance, account.currency)}.`,
         `Bills in ${account.currency} due in the next 90 days: ${money(needed, account.currency)}.`,
@@ -297,7 +308,7 @@ export function currencyExposure(input: FlagInputs): Flag | null {
   return worst;
 }
 
-export function spendingTrend(input: FlagInputs): Flag | null {
+export function spendingTrend(input: FlagInputs): Finding | null {
   const [last, ...before] = spendMonths(input.today);
   const latest = input.monthlySpend.find((m) => m.month === last);
   const prior = input.monthlySpend.filter((m) => before.includes(m.month));
@@ -309,6 +320,19 @@ export function spendingTrend(input: FlagInputs): Flag | null {
     month: "long",
     timeZone: "UTC",
   }).format(new Date(last));
+  const received = (start: string) =>
+    input.credits
+      .filter((c) => c.date.slice(0, 7) === start.slice(0, 7))
+      .reduce((sum, c) => sum + c.amount, 0);
+  const income = received(last);
+  const usualIncome =
+    before.reduce((sum, m) => sum + received(m), 0) / before.length;
+  const masked =
+    change >= 0.15 && income - usualIncome >= 0.75 * (latest.total - average);
+  const oneOffs = input.credits
+    .filter((c) => c.date.slice(0, 7) === last.slice(0, 7))
+    .filter((c) => input.credits.filter((o) => o.payer === c.payer).length === 1)
+    .map((c) => `${c.payer} (${money(c.amount, input.currency)})`);
   const drivers = input.categorySpend
     .filter((c) => c.month === last)
     .map((c) => {
@@ -324,25 +348,90 @@ export function spendingTrend(input: FlagInputs): Flag | null {
   return {
     id: "spending-trend",
     rag,
-    horizon: "month",
-    title: "Spending",
-    headline: `${change >= 0 ? "Up" : "Down"} ${Math.abs(Math.round(change * 100))}% in ${month}`,
-    metric: `${money(latest.total, input.currency, true)} vs ${money(average, input.currency, true)} usual`,
+    title: "Monthly burn",
+    headline: `Spending ${change >= 0 ? "up" : "down"} ${Math.abs(Math.round(change * 100))}%`,
+    metric: masked
+      ? `one-off receipts hid it in ${month}`
+      : `${money(latest.total, input.currency, true)} in ${month} vs ${money(average, input.currency, true)} usual`,
     detail: [
       `${month} spending: ${money(latest.total, input.currency)}. The three months before averaged ${money(average, input.currency)}.`,
+      ...(masked
+        ? [
+            `Money in was ${money(income, input.currency)}, against ${money(usualIncome, input.currency)} usual, so net burn looks flat.${oneOffs.length ? ` One-off receipts: ${oneOffs.join(", ")}.` : ""}`,
+            "Next month, without those receipts, net burn rises by the full increase.",
+          ]
+        : []),
       ...drivers.map(
         (d) => `${d.category}: up ${money(d.delta, input.currency)} on usual`,
       ),
     ],
     decision: drivers.length
-      ? `Review the biggest increase: ${drivers[0].category}.`
+      ? `Review the biggest increase, ${drivers[0].category}, before it becomes the new normal.`
       : "No category stands out. Keep the current plan.",
     action: { kind: "review_spend", label: "Review the increase" },
-    source: "Seapoint transactions, money out, complete months",
+    source: "Seapoint transactions, money in and out, complete months",
   };
 }
 
-export function oddSpend(input: FlagInputs): Flag | null {
+export function payrollCover(input: FlagInputs): Finding | null {
+  const run = input.payroll
+    .filter((r) => ["draft", "needs_approval", "to_pay", "scheduled"].includes(r.status))
+    .sort((a, b) => (a.payDate ?? "9999").localeCompare(b.payDate ?? "9999"))[0];
+  if (!run) return null;
+  const accounts = input.accounts
+    .filter((a) => a.type === "BANKING" && a.currency === run.currency)
+    .sort((a, b) => b.balance - a.balance);
+  const total = accounts.reduce((sum, a) => sum + a.balance, 0);
+  const best = accounts[0];
+  const when = run.payDate ? `on ${shortDate(run.payDate)}` : "this month";
+  const pay = money(run.net, run.currency);
+  if (!best || total < run.net)
+    return {
+      id: "payroll",
+      rag: "red",
+      title: "Payroll underfunded",
+      headline: `${money(run.net - total, run.currency, true)} short`,
+      metric: `${run.name}, ${when}`,
+      detail: [
+        `${run.name} needs ${pay} in ${run.currency}.`,
+        `${run.currency} accounts hold ${money(total, run.currency)}.`,
+      ],
+      decision: `Fund ${run.currency} accounts with ${money(run.net - total, run.currency)} before payday.`,
+      action: { kind: "fund_payroll", label: "Fund payroll" },
+      source: "Seapoint pay runs and account balances",
+    };
+  if (best.balance < run.net)
+    return {
+      id: "payroll",
+      rag: "amber",
+      title: "Payroll underfunded",
+      headline: `${money(run.net - best.balance, run.currency, true)} in the wrong account`,
+      metric: `${run.name}, ${when}`,
+      detail: [
+        `${run.name} needs ${pay}. No single ${run.currency} account holds it.`,
+        `${best.name} holds ${money(best.balance, run.currency)}.`,
+      ],
+      decision: `Move ${money(run.net - best.balance, run.currency)} into ${best.name} before payday.`,
+      action: { kind: "fund_payroll", label: "Move the money" },
+      source: "Seapoint pay runs and account balances",
+    };
+  return {
+    id: "payroll",
+    rag: "green",
+    title: "Payroll funded",
+    headline: `${pay} covered`,
+    metric: `${run.name}, ${when}`,
+    detail: [
+      `${run.name} needs ${pay}. ${best.name} holds ${money(best.balance, run.currency)}.`,
+      `Status in Seapoint: ${run.status.replace("_", " ")}.`,
+    ],
+    decision: `Pay ${run.name}, ${pay}, from ${best.name}.`,
+    action: { kind: "pay_payroll", label: "Pay the run" },
+    source: "Seapoint pay runs and account balances",
+  };
+}
+
+export function oddSpend(input: FlagInputs): Finding | null {
   const [last, ...before] = spendMonths(input.today);
   let worst: { category: string; total: number; base: number; count: number; usualCount: number } | null = null;
   for (const current of input.categorySpend.filter((c) => c.month === last)) {
@@ -365,8 +454,7 @@ export function oddSpend(input: FlagInputs): Flag | null {
   return {
     id: "odd-spend",
     rag: times >= 3 && worst.total - worst.base >= 5_000 ? "red" : "amber",
-    horizon: "week",
-    title: "Unusual spend",
+    title: "Unusual spending",
     headline: `${worst.category} ${times.toFixed(1)}× usual`,
     metric: `${money(worst.total, input.currency, true)} in ${month}`,
     detail: [
@@ -380,6 +468,7 @@ export function oddSpend(input: FlagInputs): Flag | null {
 }
 
 const rules = [
+  payrollCover,
   overdueBills,
   lateCustomer,
   idleCash,
@@ -392,8 +481,7 @@ const rules = [
 export function buildFlags(input: FlagInputs): Flag[] {
   return rules
     .map((rule) => rule(input))
-    .filter((flag): flag is Flag => flag !== null)
-    .sort(
-      (a, b) => rank[a.rag] - rank[b.rag] || soon[a.horizon] - soon[b.horizon],
-    );
+    .filter((finding): finding is Finding => finding !== null)
+    .map((finding) => ({ ...finding, horizon: horizonOf[finding.rag] }))
+    .sort((a, b) => rank[a.rag] - rank[b.rag]);
 }

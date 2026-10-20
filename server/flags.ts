@@ -40,6 +40,13 @@ const group = z.object({
   metrics: z.object({ total: z.number(), count: z.number() }),
 });
 const category = z.object({ id: z.string(), leaf: z.string() });
+const payRun = z.object({
+  name: z.string(),
+  status: z.string(),
+  pay_date: z.string().nullable().optional(),
+  currency: z.string(),
+  total_net_pay: z.number(),
+});
 
 async function rows(connection: SeapointConnection, tool: string, args: object) {
   let result = page.parse(await connection.tool(tool, { ...args, limit: 100 }));
@@ -71,7 +78,7 @@ export async function flagsFor(
     { function: "sum", field: "reporting_amount", as: "total" },
     { function: "count", as: "count" },
   ];
-  const [accounts, bills, monthly, byCategory, categories, credits] =
+  const [accounts, bills, monthly, byCategory, categories, credits, runs] =
     await Promise.all([
       rows(connection, "query_accounts", scope),
       rows(connection, "query_invoices", { ...scope, where: { is_paid: false } }),
@@ -98,6 +105,10 @@ export async function flagsFor(
           direction: "credit",
           date: { gte: new Date(now.getTime() - 400 * 86_400_000).toISOString().slice(0, 10) },
         },
+      }),
+      rows(connection, "query_payroll", {
+        ...scope,
+        where: { status: ["draft", "needs_approval", "to_pay", "scheduled"] },
       }),
     ]);
 
@@ -166,6 +177,16 @@ export async function flagsFor(
       return c.participant && c.reporting_amount
         ? [{ payer: c.participant.name, date: c.date.slice(0, 10), amount: c.reporting_amount.amount }]
         : [];
+    }),
+    payroll: runs.map((row) => {
+      const r = payRun.parse(row);
+      return {
+        name: r.name,
+        status: r.status,
+        payDate: r.pay_date?.slice(0, 10) ?? null,
+        net: r.total_net_pay,
+        currency: r.currency,
+      };
     }),
   };
   return { fetchedAt: now.toISOString(), currency, flags: buildFlags(input) };
