@@ -10,7 +10,9 @@ const balanceSchema = z.object({
 export const accountSchema = z.object({
   id: z.string(),
   currency: z.string(),
-  balance: z.object({total: z.number().optional(), available: z.number().optional()}).optional(),
+  balance: z
+    .object({ total: z.number().optional(), available: z.number().optional() })
+    .optional(),
   name: z.string(),
   type: z.enum(["BANKING", "INVESTMENT"]),
   institution: z.object({ name: z.string() }),
@@ -217,6 +219,10 @@ export async function financialSnapshot(
     new Date(),
     /burnBasis=3_month_avg/.test(methodology) ? 3 : 1,
   );
+  const previous = baselinePeriod(
+    new Date(`${period.start}T00:00:00Z`),
+    period.months,
+  );
   const common = {
     ...scope,
     reporting_currency: cash.currency,
@@ -230,7 +236,15 @@ export async function financialSnapshot(
     { function: "sum", field: "reporting_amount", as: "total" },
     { function: "count", as: "count" },
   ];
-  const [rawBurn, rawSpending, invoices, payroll, billRows, activity] = await Promise.all([
+  const [
+    rawBurn,
+    rawSpending,
+    invoices,
+    payroll,
+    billRows,
+    activity,
+    priorBurn,
+  ] = await Promise.all([
     rows(connection, "query_transactions", {
       ...common,
       where: {
@@ -268,17 +282,71 @@ export async function financialSnapshot(
         data: z.array(payrollSchema).parse(data),
       }))
       .catch(() => ({ kind: "unavailable" as const })),
-    rows(connection, "query_invoices", {...scope, where: {is_paid: false}})
-      .then(data => z.array(z.object({
-        id: z.string(), reference: z.string().optional(),
-        vendor: z.object({name: z.string().optional()}).optional(),
-        amounts: z.object({total: z.number().optional(), currency: z.string().optional()}).optional(),
-        dates: z.object({due_date: z.string().optional()}).optional(),
-      })).parse(data)).catch(() => null),
-    rows(connection, "query_transactions", {...scope, include_internal_transfers: true,
-      where: {status: "BOOKED"},
-      aggregate: {metrics: [{function: "max", field: "date", as: "latest"}]},
-    }).then(data => z.array(z.object({metrics: z.object({latest: z.string().nullable()})})).parse(data)[0]?.metrics.latest ?? null)
+    rows(connection, "query_invoices", {
+      ...scope,
+      where: { is_paid: false },
+    })
+      .then((data) =>
+        z
+          .array(
+            z.object({
+              id: z.string(),
+              reference: z.string().optional(),
+              vendor: z.object({ name: z.string().optional() }).optional(),
+              amounts: z
+                .object({
+                  total: z.number().optional(),
+                  currency: z.string().optional(),
+                })
+                .optional(),
+              dates: z.object({ due_date: z.string().optional() }).optional(),
+            }),
+          )
+          .parse(data),
+      )
+      .catch(() => null),
+    rows(connection, "query_transactions", {
+      ...scope,
+      include_internal_transfers: true,
+      where: { status: "BOOKED" },
+      aggregate: {
+        metrics: [{ function: "max", field: "date", as: "latest" }],
+      },
+    })
+      .then(
+        (data) =>
+          z
+            .array(
+              z.object({
+                metrics: z.object({ latest: z.string().nullable() }),
+              }),
+            )
+            .parse(data)[0]?.metrics.latest ?? null,
+      )
+      .catch(() => null),
+    rows(connection, "query_transactions", {
+      ...common,
+      where: {
+        ...baseWhere,
+        date: { gte: previous.start, lt: previous.end },
+        or: [
+          { direction: "debit" },
+          { direction: "credit", type: [...refunds] },
+          { direction: "credit", not: { category_id: capital } },
+        ],
+      },
+      aggregate: {
+        group_by: [{ field: "direction" }, { field: "type" }],
+        metrics,
+      },
+    })
+      .then((data) =>
+        sumBurn(
+          z.array(aggregateRowSchema).parse(data),
+          previous.months,
+          cash.currency,
+        ),
+      )
       .catch(() => null),
   ]);
   const burn = sumBurn(
@@ -330,13 +398,31 @@ export async function financialSnapshot(
     currency: cash.currency,
     period,
     cash: cash.cash,
+    comparison:
+      priorBurn && priorBurn.transactionCount > 0
+        ? {
+            label: previous.label,
+            netBurn: priorBurn.netBurn,
+            transactionCount: priorBurn.transactionCount,
+            complete: priorBurn.warnings.length === 0,
+          }
+        : null,
     ...burn,
     accounts: cash.accounts,
     latestTransactionDate: activity,
-    supplierBills: billRows?.map(bill => ({id: bill.id, vendor: bill.vendor?.name ?? "Supplier not extracted", reference: bill.reference ?? "No reference",
-      amount: bill.amounts?.total ?? null, currency: bill.amounts?.currency ?? null,
-      due: bill.dates?.due_date && /^\d{4}-\d{2}-\d{2}$/.test(bill.dates.due_date) ? bill.dates.due_date : null,
-    })) ?? null,
+    supplierBills:
+      billRows?.map((bill) => ({
+        id: bill.id,
+        vendor: bill.vendor?.name ?? "Supplier not extracted",
+        reference: bill.reference ?? "No reference",
+        amount: bill.amounts?.total ?? null,
+        currency: bill.amounts?.currency ?? null,
+        due:
+          bill.dates?.due_date &&
+          /^\d{4}-\d{2}-\d{2}$/.test(bill.dates.due_date)
+            ? bill.dates.due_date
+            : null,
+      })) ?? null,
     spending,
     unpaidInvoices: invoice?.metrics.total ?? null,
     unpaidInvoiceCount: invoice?.metrics.count ?? null,

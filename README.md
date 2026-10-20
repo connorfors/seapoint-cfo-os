@@ -1,11 +1,11 @@
 # Headroom — Seapoint CFO OS
 
-A local hackathon demo for comparing hiring and capital allocation plans against Seapoint financial data.
+A local hackathon demo that turns financial evidence and a business brief into clear next moves.
 
 ## Run locally
 
 Requirements: Node.js 22.12 or later, npm, and Codex CLI with MCP app-server support.
-This demo was verified with Codex CLI 0.163.0.
+The connection was verified with Codex CLI 0.163.0.
 
 ```bash
 npm ci
@@ -13,66 +13,101 @@ codex mcp add seapoint-staging --url https://mcp.seapoint.dev/mcp
 npm run dev
 ```
 
-The Codex command opens the Seapoint approval page. Approve the connection in your own account.
-If the server is already configured, use `codex mcp login seapoint-staging` to authenticate it.
-
+Approve the Seapoint connection in your own account.
+For an existing connection, authenticate with `codex mcp login seapoint-staging`.
 Open <http://127.0.0.1:4317>. The API listens on `127.0.0.1:4318`.
 Keep both processes running while presenting.
 
-To use another configured MCP connection:
+To select another configured MCP connection:
 
 ```bash
 SEAPOINT_MCP_SERVER=your-server-name npm run dev
 ```
 
-## Demo walkthrough
+## Present the demo
 
-1. Open **Business context**. Review the fictional company, goal, team and constraints.
-2. Select **Pipeline & growth**, then **Build my plan**.
-3. Compare the GTM plan with founder support, product delivery and no new commitments.
-4. Change a salary, start month or capital investment. Watch cash and runway change.
-5. Use **Test upside** to model an explicit monthly net cash contribution from month six.
-6. Change the bottleneck to **Founder capacity** and build the plan again.
-7. Open **Financial evidence** to inspect balances, spending and source dates.
-8. Use **Export brief** to download the assumptions and selected plan as Markdown.
+1. Open the decision room: **Your next moves, in order.**
+2. Show six tiles with RAG ratings, short headlines and one key metric.
+3. Click **Take action now**. Select the action and review the supporting decision.
+4. Prepare an approval request, then choose **Approve demo preparation**.
+5. Open the prepared checklist, financial evidence, capital plan or invoice portal demonstration.
+6. For payroll, show Monday funding, Wednesday readiness and Friday payment. Change the demo clock to show a missed deadline.
+7. For customer payments, choose the portal invoice action. Identify the PO fields, fill the form and review the local draft.
+8. Open **Business context** to edit the fictional product, customers, pricing, team, funding, deals, raise, pipeline, roadmap and bets.
+9. Change the primary constraint or budget. Compare the resulting hiring plan and cash plot.
+
+The six tiles cover payroll funding, slow-paying customers, FX, unusual spend, monthly burn and runway with the next hire.
+Details and business understanding stay in the action dialog.
+Red means action is needed. Amber means review. Green means the stated rule is within its limit.
+Unknown evidence never establishes a healthy trend.
+
+Opus’s flags engine supplies an observed historical unusual-spend flag when one is available.
+The server requires complete reporting-currency totals before using those spending flags.
+The burn tile compares monthly net burn with the preceding equal-length period.
+Its thresholds differ from the flags engine’s gross-spending comparison against three prior months.
+The payroll commitment, 90-day customer terms and FX quote movement remain explicit demo scenarios.
+The unusual-spend tile uses a labelled meals fixture when no observed flag is available.
 
 The default deployment budget is 700,000 in the organisation’s reporting currency.
-It is a planning constraint within existing cash. It does not add funding.
+It is a constraint within existing cash, not new funding.
 
-## What is live
+## Live evidence
 
 The server uses the authenticated Seapoint MCP connection through a local Codex app-server process.
-It starts an ephemeral protocol session. It does not start a Codex model turn.
+It starts an ephemeral protocol session, without a Codex model turn.
 Other configured MCP servers are disabled for that process only.
 
-Financial reads include account balances, transaction aggregates, categories, supplier invoices and payroll summaries.
-Every query selects one organisation. The interface requires selection when several organisations are available.
+Reads include accounts, transaction aggregates, categories, supplier bills and payroll summaries.
+Every query selects one organisation.
+The interface requires organisation selection when several are available.
+Native available balances remain separate from reporting-currency cash totals.
+The latest booked transaction is shown as an activity clue, not a bank refresh timestamp.
+Old history triggers a visible caution.
+Payroll dates remain historical; the app does not silently roll them forward.
+Supplier-bill due dates come from extraction and require confirmation.
+
 Seapoint’s methodology resources determine the complete-month baseline and cash calculation.
-Runway always uses net burn. Funding credits do not offset operating burn.
-Internal transfers, failed payments and excluded-from-runway transactions do not inflate the baseline.
+Runway uses net burn. Funding credits and internal transfers do not offset operating burn.
+Refunds reduce gross spend. Failed, cancelled and excluded transactions do not inflate the baseline.
 
 Only the six financial read tools in `server/mcp.ts` can be called.
-The API cannot change bookkeeping records or move money.
-Credentials stay in Codex’s credential store. They do not enter browser code or Git.
-Financial snapshots stay in server memory for five minutes. Refresh fetches a new snapshot.
-The server accepts local hosts and the local interface’s origin only.
+The API cannot change bookkeeping records, submit invoices or move money.
+Credentials stay in Codex’s credential store.
+Snapshots stay in server memory for five minutes. Refresh fetches new evidence.
+The server binds to loopback and checks the Host and Origin headers.
 
-## What is fictional
+## Demo assumptions
 
-The company narrative, proposed roles, salaries, employer overhead, success criteria and investment amounts are demo assumptions.
-They do not come from Seapoint.
-Business context is editable and stored in this browser’s local storage.
+The editable company brief, proposed hires, salaries, costs and success criteria are fictional.
+Business context stays in this browser’s local storage.
+Local rules use the primary constraint, budget, runway floor and employer overhead.
+An LLM does not interpret the narrative fields.
+The interface preserves those fields as visible context.
 
-Suggestions use a transparent local rules engine, not an LLM.
-The bottleneck, budget and runway limit determine the suggested approach.
-Narrative text remains visible in the brief but is not interpreted by a language model.
-Costs, timing and the optional cash-contribution assumption drive the forecast.
+The three upcoming payment commitments are fictional overlays on the selected live balances.
+The fixed demo clock starts on Friday 23 October 2026, independently of the financial snapshot date.
+The USD payroll wallet is a fictional destination, not a connected account.
+The planner reserves balances once, in payment due-date order.
+It then displays cash moves in action-deadline order.
+Treasury cannot fund this model automatically.
+Missing available balances block readiness.
+The only illustrative FX pair is GBP to USD at 1.30, without fees.
+Settlement and safety buffers use weekdays. No bank holidays or cut-off times are loaded.
+Confirm account setup, current balances, FX quotes, fees and provider timing before real action.
 
-New recurring costs continue after the twelve-month chart horizon.
-One-time costs apply once, at the stated start month.
-The baseline repeats the selected historical monthly net cash flow.
-It does not predict revenue, tax timing, inflation, new funding or treasury liquidity.
-Open invoices are disclosed separately. They are not deducted again from the recurring spending baseline.
+The portal demonstration uses a fixed text purchase-order fixture.
+It does not parse a PDF or run a browser agent against an external portal.
+The local form shows a fictional £9,000 net invoice and an explicit 20% VAT assumption.
+It requires review before saving a session-only result.
+No customer invoice is submitted, sent to Seapoint or counted as cash received.
+A production implementation needs real document extraction, portal access, duplicate checks and submission receipts.
+
+The capital model repeats the historical monthly net burn and adds proposed commitments.
+Recurring costs continue beyond twelve months. Setup costs apply once.
+No future sales, funding or investment returns are assumed.
+The account-readiness scenario and live supplier bills are separate from that historical model.
+They are not deducted again from its recurring baseline.
+ROI remains a hypothesis with a stated review gate.
 
 ## Check the app
 
@@ -83,21 +118,30 @@ curl --fail http://127.0.0.1:4318/api/health
 ```
 
 Health reports readiness only after an authenticated Seapoint read succeeds.
-Calculation tests cover delayed hiring, employer costs, one-time capital spend, cash inflows, currency checks and calendar-month boundaries.
-See [the verification record](docs/verification.md) for the browser flows checked locally.
+Tests cover working days, currency and account mismatches, repeated cash allocation, hiring costs and runway.
+The browser verification record is in [docs/verification.md](docs/verification.md).
 
 ## Team collaboration
 
-Work on a feature branch and open a pull request.
+Work on feature branches and open pull requests.
 Each teammate authenticates their own Seapoint connection.
-Keep credentials, financial exports and account records out of Git.
-This repository contains application code and fictional assumptions only.
-No hosted deployment is configured.
+Keep credentials, account records, financial exports and private Drive documents out of Git.
+This repository contains code and fictional assumptions only.
+The `public-link/` setup from main forwards the public Worker to the presenter’s local dev server.
+The existing public address is <https://headroom.cb-63a.workers.dev/>.
+It needs the local app, tunnel and presenter’s Seapoint login to remain available.
+Anyone with that public link can read the financial evidence exposed by the app.
+The app does not add an access code or a separate hosted data store.
+
+The supplied Drive cash-forecast, sales-readiness, spend-readiness and data-freshness guides informed the source separation and review steps.
+Their private contents are not bundled in this public repository.
 
 ## Demo blockers
 
-- The app reads the wrong organisation or shows an incomplete financial baseline without its caveat.
-- Cash or runway disagrees with the displayed costs, dates or currency.
-- A fictional business input appears as a Seapoint fact.
-- A failed connection appears as zero spending or a healthy connection.
+- The app reads the wrong organisation or silently combines incompatible currencies.
+- Money in another account appears ready without a transfer or account check.
+- A working-day deadline, amount, hiring cost or runway disagrees with its displayed assumptions.
+- A missing or failed financial read appears as zero spending or verified availability.
+- A fictional commitment appears as a Seapoint fact.
+- A portal draft appears submitted to a real customer.
 - Credentials or private financial records enter the public repository.

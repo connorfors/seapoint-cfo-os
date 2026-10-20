@@ -10,18 +10,29 @@ import {
 test("cash uses banking cash position and investment total in reporting currency", () => {
   const result = sumCash([
     {
-      id: "bank", currency: "GBP", balance: {total: 150, available: 90}, name: "Bank",
+      id: "bank",
+      currency: "GBP",
+      balance: { total: 150, available: 90 },
+      name: "Bank",
       type: "BANKING",
       institution: { name: "Bank" },
       reporting_balance: { currency: "GBP", total: 150, cash_position: 100 },
     },
     {
-      id: "treasury", currency: "GBP", name: "Treasury",
+      id: "treasury",
+      currency: "GBP",
+      name: "Treasury",
       type: "INVESTMENT",
       institution: { name: "Fund" },
       reporting_balance: { currency: "GBP", total: 200 },
     },
-    {id: "missing", currency: "EUR", name: "No FX", type: "BANKING", institution: { name: "Bank" } },
+    {
+      id: "missing",
+      currency: "EUR",
+      name: "No FX",
+      type: "BANKING",
+      institution: { name: "Bank" },
+    },
   ]);
   assert.equal(result.cash, 300);
   assert.equal(result.missing, 1);
@@ -61,13 +72,17 @@ test("cash refuses to combine different reporting currencies", () => {
     () =>
       sumCash([
         {
-          id: "gbp", currency: "GBP", name: "GBP",
+          id: "gbp",
+          currency: "GBP",
+          name: "GBP",
           type: "INVESTMENT",
           institution: { name: "Fund" },
           reporting_balance: { currency: "GBP", total: 100 },
         },
         {
-          id: "eur", currency: "EUR", name: "EUR",
+          id: "eur",
+          currency: "EUR",
+          name: "EUR",
           type: "INVESTMENT",
           institution: { name: "Fund" },
           reporting_balance: { currency: "EUR", total: 100 },
