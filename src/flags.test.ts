@@ -7,6 +7,7 @@ import {
   lateCustomer,
   oddSpend,
   overdueBills,
+  payrollCover,
   spendingTrend,
   spendMonths,
   type FlagInputs,
@@ -52,6 +53,11 @@ function input(overrides: Partial<FlagInputs> = {}): FlagInputs {
       { payer: "Delta Consulting", date: "2026-08-10", amount: 3_360 },
       { payer: "Delta Consulting", date: "2026-09-10", amount: 3_360 },
       { payer: "Delta Consulting", date: "2026-10-10", amount: 3_360 },
+      { payer: "Acme Retail Group", date: "2026-09-30", amount: 18_500 },
+      { payer: "Globex Corporation", date: "2026-09-28", amount: 12_750 },
+    ],
+    payroll: [
+      { name: "October payroll", status: "to_pay", payDate: null, net: 11_800, currency: "GBP" },
     ],
     ...overrides,
   };
@@ -73,7 +79,6 @@ test("spend months are the last complete month and the three before", () => {
 test("overdue bills are red, convert EUR, and list USD separately", () => {
   const flag = overdueBills(input())!;
   assert.equal(flag.rag, "red");
-  assert.equal(flag.horizon, "today");
   assert.match(flag.metric, /3 bills · oldest 35 days late/);
   assert.match(flag.decision, /£29,382\.50/);
   assert.ok(flag.detail.some((line) => line.includes("US$1,300")));
@@ -113,15 +118,47 @@ test("idle cash is silent without a treasury account", () => {
 
 test("foreign cash beyond 90 days of bills in that currency is exposure", () => {
   const flag = currencyExposure(input())!;
-  assert.match(flag.headline, /€159k unhedged/);
+  assert.equal(flag.title, "Potential FX loss");
+  assert.match(flag.headline, /£7k at risk/);
+  assert.match(flag.metric, /€159k unhedged/);
   assert.match(flag.detail[1], /€9,000\.00/);
 });
 
-test("spending up 23% is amber and names the biggest driver", () => {
+test("spending up 23% is amber, and one-off receipts that hid it are named", () => {
   const flag = spendingTrend(input())!;
   assert.equal(flag.rag, "amber");
-  assert.match(flag.headline, /Up 23% in September/);
-  assert.match(flag.decision, /Meals|Software/);
+  assert.equal(flag.headline, "Spending up 23%");
+  assert.match(flag.metric, /one-off receipts hid it/);
+  assert.match(flag.detail[1], /Acme Retail Group \(£18,500\.00\), Globex Corporation/);
+  assert.match(flag.decision, /Meals/);
+});
+
+test("without unusual receipts the burn card shows the plain comparison", () => {
+  const credits = input().credits.filter((c) => c.date < "2026-09-01");
+  const flag = spendingTrend(input({ credits }))!;
+  assert.match(flag.metric, /£162k in September vs £133k usual/);
+});
+
+test("payroll is green when one account covers it", () => {
+  const flag = payrollCover(input())!;
+  assert.equal(flag.rag, "green");
+  assert.equal(flag.title, "Payroll funded");
+  assert.match(flag.decision, /from Northstar Modulr GBP/);
+});
+
+test("payroll is amber when only the accounts together cover it", () => {
+  const payroll = [{ name: "Run", status: "scheduled", payDate: "2026-10-25", net: 600_000, currency: "GBP" }];
+  const flag = payrollCover(input({ payroll }))!;
+  assert.equal(flag.rag, "amber");
+  assert.equal(flag.title, "Payroll underfunded");
+  assert.match(flag.decision, /Move £34,600\.00 into Northstar Modulr GBP/);
+});
+
+test("payroll is red when its currency cannot cover it", () => {
+  const payroll = [{ name: "US run", status: "to_pay", payDate: null, net: 24_000, currency: "USD" }];
+  const flag = payrollCover(input({ payroll }))!;
+  assert.equal(flag.rag, "red");
+  assert.match(flag.headline, /US\$24k short/);
 });
 
 test("the category furthest above usual is the odd spend", () => {
@@ -130,11 +167,18 @@ test("the category furthest above usual is the odd spend", () => {
   assert.match(flag.detail[1], /3 payments, against about 1/);
 });
 
-test("flags sort red first, then by how soon they matter", () => {
+test("red is today, amber this week, green this month, in that order", () => {
   const flags = buildFlags(input());
-  assert.equal(flags.length, 6);
   assert.deepEqual(
-    flags.map((f) => f.id),
-    ["overdue-bills", "late-customer", "odd-spend", "idle-cash", "currency-exposure", "spending-trend"],
+    flags.map((f) => `${f.rag}:${f.horizon}:${f.id}`),
+    [
+      "red:today:overdue-bills",
+      "red:today:late-customer",
+      "amber:week:idle-cash",
+      "amber:week:currency-exposure",
+      "amber:week:spending-trend",
+      "amber:week:odd-spend",
+      "green:month:payroll",
+    ],
   );
 });
