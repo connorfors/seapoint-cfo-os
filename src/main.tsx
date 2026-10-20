@@ -4,6 +4,9 @@ import "@fontsource-variable/manrope";
 import "@fontsource-variable/geist";
 import "./styles.css";
 import { App } from "./App";
+import { initialiseTheme } from "./components/ThemeToggle";
+
+initialiseTheme();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("The application root is missing.");

@@ -1,3 +1,4 @@
+import { ThemeToggle } from "./components/ThemeToggle";
 import { CashPlot } from "./components/CashPlot";
 import { DecisionRoom } from "./components/DecisionRoom";
 import { CashView } from "./components/CashReadiness";
@@ -390,6 +391,7 @@ export function App() {
               : "Seapoint connected"
             : "Connecting Seapoint"}
         </div>
+        <ThemeToggle />
       </header>
       {!journeyDone && (
         <main>
