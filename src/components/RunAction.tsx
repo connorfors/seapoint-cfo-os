@@ -1,3 +1,6 @@
+import {FxTicket} from "./FxTicket";
+import type {Snapshot} from "../contracts";
+import type {ActionCompletion} from "../run-action";
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { ArrowRight, Check } from "lucide-react";
 import type { Move } from "../signals";
@@ -19,7 +22,11 @@ function prefersReducedMotion() {
   );
 }
 
-export function RunAction(props: { move: Move; onDone: (receipt: string) => void }): JSX.Element {
+type RunActionProps={move:Move;snapshot:Snapshot;onDone:(completion:ActionCompletion)=>void};
+export function RunAction(props:RunActionProps):JSX.Element {
+  return props.move.kind==="convert_currency" ? <FxTicket {...props}/> : <SimulatedAction {...props}/>;
+}
+function SimulatedAction(props:RunActionProps): JSX.Element {
   const { move, onDone } = props;
   const plan = useMemo(() => planFor(move), [move]);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -45,7 +52,7 @@ export function RunAction(props: { move: Move; onDone: (receipt: string) => void
       return () => window.clearTimeout(timer);
     }
     const timer = window.setTimeout(
-      () => onDoneRef.current(plan.receipt),
+      () => onDoneRef.current({receipt:plan.receipt,steps:plan.steps}),
       reduced ? DONE_DELAY_MS / 2 : DONE_DELAY_MS,
     );
     return () => window.clearTimeout(timer);

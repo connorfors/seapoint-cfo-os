@@ -494,6 +494,7 @@ export function App() {
           <>
             {view === "moves" && (
               <DecisionRoom
+                snapshot={snapshot}
                 moves={buildMoves(liveFlags, snapshot, context, selected)}
                 company={context.company}
                 loading={!liveFlags.length && !flagError}

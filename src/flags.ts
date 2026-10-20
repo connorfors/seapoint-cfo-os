@@ -1,3 +1,4 @@
+import type {FxIntent} from "./fx-contracts";
 export type Rag = "red" | "amber" | "green";
 export type Horizon = "today" | "week" | "month";
 export type ActionKind =
@@ -22,6 +23,7 @@ export type Flag = {
     kind: ActionKind;
     label: string;
     email?: { subject: string; body: string };
+    fx?: FxIntent;
   };
   source: string;
 };
@@ -416,7 +418,7 @@ export function currencyExposure(input: FlagInputs): Finding | null {
           `At the forecast, that loses about ${money(loss, input.currency)}. A forward at today's ${account.rate.toFixed(4)} removes it.`,
         ],
         decision: `Lock a 3-month forward on ${money(spare, account.currency)} at today's ${account.rate.toFixed(4)}, worth ${money(excess, input.currency)}.`,
-        action: { kind: "convert_currency", label: "Lock in rate" },
+        action: { kind: "convert_currency", label: "Lock in rate", fx: {sellAccountId:account.id,sellAmount:Math.round(spare*100)/100,sellCurrency:account.currency,buyCurrency:input.currency} },
         source: `Seapoint balances and unpaid invoices, with the ${market.source}`,
       };
       continue;
@@ -434,7 +436,7 @@ export function currencyExposure(input: FlagInputs): Finding | null {
         "Seapoint gives today's rate only, so Headroom cannot see recent moves.",
       ],
       decision: `Convert ${money(spare, account.currency)} to ${input.currency} at today's rate, or lock in a forward rate.`,
-      action: { kind: "convert_currency", label: "Lock in rate" },
+      action: { kind: "convert_currency", label: "Lock in rate", fx: {sellAccountId:account.id,sellAmount:Math.round(spare*100)/100,sellCurrency:account.currency,buyCurrency:input.currency} },
       source: "Seapoint account balances and unpaid invoices",
     };
   }

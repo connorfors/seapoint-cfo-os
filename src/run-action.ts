@@ -1,4 +1,8 @@
+import {z} from "zod";
 import type { Move } from "./signals";
+
+export const actionCompletionSchema=z.object({receipt:z.string().max(3000),steps:z.array(z.string().max(2000)).min(1).max(20)});
+export type ActionCompletion=z.infer<typeof actionCompletionSchema>;
 
 export type ActionPlan = { button: string; steps: string[]; receipt: string };
 
@@ -75,14 +79,14 @@ export function planFor(move: Move, ref: string = randomRef()): ActionPlan {
   switch (move.kind) {
     case "convert_currency":
       return {
-        button: "Lock in rate now",
+        button: "Open HSBC demo ticket",
         steps: [
-          "Fetching a live quote",
-          "Comparing spot and forward",
-          "Locking the rate",
-          "Rate locked",
+          "Verified source and settlement accounts through Seapoint",
+          "Reviewed an illustrative HSBC quote",
+          "Accepted the demo quote",
+          "Issued a simulated deal receipt",
         ],
-        receipt: `Rate locked${amount ? ` on ${amount}` : ""}${tag}`,
+        receipt: `HSBC demo rate lock${amount ? ` on ${amount}` : ""}${tag}. No real trade booked.`,
       };
     case "chase_customer": {
       const payer = match(text, /^Send (.+?) a payment reminder/);

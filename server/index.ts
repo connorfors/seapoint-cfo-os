@@ -1,3 +1,5 @@
+import {createFxDesk,FxError} from "./fx";
+import {fxQuoteRequestSchema,fxAcceptSchema} from "../src/fx-contracts";
 import { createServer, type ServerResponse } from "node:http";
 import { connectSeapoint, type SeapointConnection } from "./mcp";
 import { financialSnapshot, organisations } from "./finance";
@@ -38,6 +40,7 @@ async function readJson(request: import("node:http").IncomingMessage) {
   }
   return JSON.parse(body || "{}") as Record<string, unknown>;
 }
+const fxDesk=createFxDesk();
 const publicOrigins = (
   process.env.HEADROOM_PUBLIC_ORIGINS ?? "https://headroom.cb-63a.workers.dev"
 )
@@ -78,11 +81,21 @@ const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://127.0.0.1:4318");
   const resolvedPost = request.method === "POST" && url.pathname === "/api/alerts/resolved";
   const alertPost = request.method === "POST" && url.pathname === "/api/alerts";
-  if (request.method !== "GET" && !alertPost && !resolvedPost) {
+  const fxPost=request.method==="POST" && (url.pathname==="/api/fx/quotes" || url.pathname==="/api/fx/accept");
+  if (request.method !== "GET" && !alertPost && !resolvedPost && !fxPost) {
     json(response, 405, { error: "The demo only reads financial data." });
     return;
   }
   try {
+    if (fxPost) {
+      const body=await readJson(request);
+      const parsed=(url.pathname==="/api/fx/quotes" ? fxQuoteRequestSchema : fxAcceptSchema).safeParse(body);
+      if (!parsed.success) {json(response,400,{error:parsed.error.issues[0]?.message ?? "Check the FX request."});return;}
+      const client=await getConnection();
+      if (!(await accessible(client,parsed.data.organisation))) {json(response,403,{error:"That organisation is not accessible to this Seapoint account."});return;}
+      const result=url.pathname==="/api/fx/quotes" ? await fxDesk.quote(client,fxQuoteRequestSchema.parse(body)) : await fxDesk.accept(client,parsed.data.organisation,fxAcceptSchema.parse(body).quoteId);
+      json(response,200,result);return;
+    }
     if (resolvedPost) {
       const body = await readJson(request);
       const to = String(body.to ?? "").trim();
@@ -206,7 +219,7 @@ const server = createServer(async (request, response) => {
       error instanceof Error
         ? error.message
         : "The Seapoint connection failed.";
-    json(response, 502, { error: message });
+    json(response, error instanceof FxError ? error.status : 502, { error: message });
   }
 });
 

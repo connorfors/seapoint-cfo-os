@@ -1,3 +1,4 @@
+import type {FxIntent} from "./fx-contracts";
 import type { BusinessContext, LiveFlag, Snapshot } from "./contracts";
 import { horizonOf, type Horizon, type Rag } from "./flags";
 import { project, actionsForPlan, type PlanId } from "./model";
@@ -20,6 +21,7 @@ export type Move = {
   email?: { subject: string; body: string };
   source: string;
   impact: string;
+  fx?: FxIntent;
 };
 
 export const horizons: { id: Horizon; label: string }[] = [
@@ -88,6 +90,7 @@ function fromFlag(flag: LiveFlag, context: BusinessContext): Move {
     kind: flag.action.kind,
     actionLabel: flag.action.label,
     email: flag.action.email,
+    fx: flag.action.fx,
     source: flag.source,
     impact: impacts[flag.id] ?? "Handled",
   };
