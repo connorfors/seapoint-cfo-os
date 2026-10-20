@@ -1,6 +1,7 @@
 import { createServer, type ServerResponse } from "node:http";
 import { connectSeapoint, type SeapointConnection } from "./mcp";
 import { financialSnapshot, organisations } from "./finance";
+import { flagsFor } from "./flags";
 import { snapshotSchema, type Snapshot } from "../src/contracts";
 
 let connection: Promise<SeapointConnection> | undefined;
@@ -60,6 +61,20 @@ const server = createServer(async (request, response) => {
       });
     } else if (url.pathname === "/api/organisations") {
       json(response, 200, await organisations(await getConnection()));
+    } else if (url.pathname === "/api/flags") {
+      const id = url.searchParams.get("organisation");
+      if (!id) {
+        json(response, 400, { error: "Select a Seapoint organisation first." });
+        return;
+      }
+      const client = await getConnection();
+      if (!(await organisations(client)).some((item) => item.id === id)) {
+        json(response, 403, {
+          error: "That organisation is not accessible to this Seapoint account.",
+        });
+        return;
+      }
+      json(response, 200, await flagsFor(client, id));
     } else if (url.pathname === "/api/snapshot") {
       const id = url.searchParams.get("organisation");
       if (!id) {
