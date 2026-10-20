@@ -1,6 +1,5 @@
 import { CashPlot } from "./components/CashPlot";
 import { DecisionRoom } from "./components/DecisionRoom";
-import { buildMoves } from "./signals";
 import { CashView } from "./components/CashReadiness";
 import { Evidence } from "./components/BusinessEvidence";
 import { PortalDemo } from "./components/InvoicePortal";
